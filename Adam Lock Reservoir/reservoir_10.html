@@ -1,0 +1,1975 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Reservoir — PoE++ amplifier power-budget bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b0e13; --panel:#10151d; --panel2:#161d28; --panel3:#1c2533;
+  --line:#26303f; --line2:#1a2230; --grid:#161d2a;
+  --ink:#dde4ee; --mut:#8a98ad; --mut2:#5e6b7e;
+  --volt:#f4b740; --cur:#28d3d3; --pow:#a78bfa;
+  --acc:#5180ff; --ok:#43d39a; --warn:#ff6a5d; --caut:#f4b740;
+  --mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+  --disp:'Space Grotesk',system-ui,sans-serif;
+  --r:9px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--disp);font-size:14px;-webkit-font-smoothing:antialiased}
+body{min-height:100vh}
+button{font-family:var(--disp);cursor:pointer}
+input,select{font-family:var(--mono)}
+.mono{font-family:var(--mono)}
+.mut{color:var(--mut)}
+::selection{background:var(--acc);color:#fff}
+
+/* layout */
+.top{display:flex;align-items:center;gap:16px;padding:12px 18px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,#11161f,#0d1117);position:sticky;top:0;z-index:30}
+.brand{display:flex;flex-direction:column;line-height:1.05}
+.brand b{font-weight:700;letter-spacing:.02em;font-size:16px}
+.brand b span{color:var(--acc)}
+.brand small{color:var(--mut2);font-size:11px;letter-spacing:.06em;text-transform:uppercase;margin-top:2px}
+.simctl{margin-left:auto;display:flex;align-items:center;gap:14px}
+.filectl{display:flex;align-items:center;gap:7px;padding-right:14px;border-right:1px solid var(--line)}
+.filelbl{cursor:pointer;display:inline-flex;align-items:center}
+.fname{font-family:var(--mono);font-size:11px;color:var(--mut);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* efficiency curve editor */
+.effmodebar{display:flex;gap:5px;margin-bottom:8px}
+.effcurvehd{margin-bottom:2px}
+/* loop BW and other drawer additions */
+.cabinfo{display:flex;align-items:center}
+.simctl label{display:flex;flex-direction:column;font-size:10px;color:var(--mut2);text-transform:uppercase;letter-spacing:.05em;gap:3px}
+.simctl input{width:64px}
+
+.field{background:#0a0e14;border:1px solid var(--line);border-radius:6px;color:var(--ink);
+  padding:5px 7px;font-size:12.5px;outline:none}
+.field:focus{border-color:var(--acc);box-shadow:0 0 0 2px rgba(81,128,255,.18)}
+select.field{cursor:pointer}
+
+.btn{background:var(--panel3);border:1px solid var(--line);color:var(--ink);border-radius:6px;
+  padding:7px 12px;font-size:12.5px;font-weight:600;transition:.12s}
+.btn:hover{border-color:var(--acc);color:#fff}
+.btn.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn.ghost{background:transparent}
+.btn.sm{padding:3px 8px;font-size:11px}
+
+/* verdict strip */
+.verdict{display:flex;gap:14px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel);
+  align-items:stretch;flex-wrap:wrap}
+.gauge{flex:1 1 360px;min-width:300px;background:var(--panel2);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+.gauge .hd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
+.gauge .hd .t{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--mut)}
+.gauge .hd .v{font-family:var(--mono);font-size:13px}
+.bar{position:relative;height:26px;background:#0a0e14;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.bar .fillavg{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#2c3a52,#3a5db0);opacity:.55}
+.bar .fillpk{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,var(--ok),#36b27f)}
+.bar.over .fillpk{background:linear-gradient(90deg,#b3463c,var(--warn))}
+.bar .limit{position:absolute;top:-3px;bottom:-3px;width:2px;background:#fff;box-shadow:0 0 6px rgba(255,255,255,.6)}
+.bar .lbl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--mono);
+  font-size:12px;font-weight:600;text-shadow:0 1px 2px #000;letter-spacing:.02em}
+.stat{flex:0 0 auto;min-width:118px;background:var(--panel2);border:1px solid var(--line);border-radius:var(--r);padding:10px 13px}
+.stat .k{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut2)}
+.stat .val{font-family:var(--mono);font-size:19px;font-weight:600;margin-top:3px}
+.stat .val small{font-size:11px;color:var(--mut);font-weight:400}
+.stat.bad .val{color:var(--warn)} .stat.good .val{color:var(--ok)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.06em;
+  padding:4px 10px;border-radius:20px;text-transform:uppercase}
+.pill.pass{background:rgba(67,211,154,.14);color:var(--ok);border:1px solid rgba(67,211,154,.4)}
+.pill.fail{background:rgba(255,106,93,.14);color:var(--warn);border:1px solid rgba(255,106,93,.4)}
+
+/* workspace */
+.work{display:grid;grid-template-columns:230px 1fr 250px;gap:0;align-items:stretch}
+.col{padding:16px;border-right:1px solid var(--line);min-height:200px}
+.col:last-child{border-right:none}
+.colhd{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut2);margin-bottom:11px;
+  display:flex;align-items:center;gap:7px}
+.colhd::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.6}
+.col.src .colhd{color:var(--volt)} .col.load .colhd{color:var(--cur)} .col.mid .colhd{color:var(--acc)}
+
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:var(--r);padding:13px}
+.card.src{border-top:2px solid var(--volt)}
+.card.load{border-top:2px solid var(--cur)}
+.row{display:flex;gap:8px;margin-bottom:8px}
+.row:last-child{margin-bottom:0}
+.f{flex:1;display:flex;flex-direction:column;gap:3px}
+.f label{font-size:10px;color:var(--mut2);letter-spacing:.04em;text-transform:uppercase}
+.f .field{width:100%}
+.preset{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:11px}
+
+/* pipeline */
+.mid{background:#0c1016}
+.bus{display:flex;align-items:stretch;gap:0;overflow-x:auto;padding:8px 4px 18px;min-height:170px}
+.node{flex:0 0 auto;display:flex;align-items:center}
+.tap{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  position:relative;padding:0 2px;align-self:center}
+.tap .wire{position:absolute;top:50%;left:-12px;right:-12px;height:2px;background:var(--line);z-index:0}
+.tap .dot{width:15px;height:15px;border-radius:50%;background:#0a0e14;border:2px solid var(--mut2);z-index:1;
+  cursor:pointer;transition:.12s;position:relative}
+.tap .dot:hover{border-color:var(--acc);transform:scale(1.18)}
+.tap .dot.active{border-color:var(--volt);background:var(--volt);box-shadow:0 0 9px rgba(244,183,64,.6)}
+.tap .rlbl{font-size:9.5px;color:var(--mut2);font-family:var(--mono);white-space:nowrap;position:absolute;top:20px}
+.block{flex:0 0 auto;width:150px;background:var(--panel2);border:1px solid var(--line);border-radius:var(--r);
+  padding:10px;cursor:pointer;transition:.12s;position:relative;align-self:center}
+.block:hover{border-color:var(--acc)}
+.block.sel{border-color:var(--acc);box-shadow:0 0 0 2px rgba(81,128,255,.25)}
+.block.conv{border-left:3px solid var(--acc)}
+.block.cap{border-left:3px solid var(--pow)}
+.block .bt{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}
+.block .bt .nm{font-size:11px;font-weight:700;letter-spacing:.03em}
+.block .bt .tag{font-size:9px;font-family:var(--mono);color:var(--mut);text-transform:uppercase;
+  border:1px solid var(--line);padding:1px 5px;border-radius:4px}
+.block .kv{font-family:var(--mono);font-size:11px;color:var(--mut);line-height:1.55}
+.block .kv b{color:var(--ink);font-weight:500}
+.block .ctrls{display:flex;gap:3px;margin-top:8px;opacity:0;transition:.12s}
+.block:hover .ctrls,.block.sel .ctrls{opacity:1}
+.block .ctrls button{flex:1;background:#0a0e14;border:1px solid var(--line);color:var(--mut);border-radius:4px;
+  padding:2px 0;font-size:11px;line-height:1}
+.block .ctrls button:hover{color:#fff;border-color:var(--acc)}
+.block .viol{position:absolute;top:-7px;right:-7px;width:16px;height:16px;border-radius:50%;background:var(--warn);
+  color:#fff;font-size:11px;font-weight:700;display:none;align-items:center;justify-content:center;line-height:1}
+.block.hasviol .viol{display:flex}
+.addbar{display:flex;gap:7px;padding:0 4px 4px;flex-wrap:wrap}
+.addbar .btn{flex:0 0 auto}
+
+/* drawer */
+.drawer{position:fixed;top:0;right:0;bottom:0;width:340px;background:var(--panel);border-left:1px solid var(--line);
+  z-index:40;transform:translateX(100%);transition:.18s;overflow-y:auto;box-shadow:-12px 0 32px rgba(0,0,0,.4)}
+.drawer.open{transform:none}
+.drawer .dh{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line);
+  position:sticky;top:0;background:var(--panel);z-index:2}
+.drawer .dh b{font-size:14px}
+.drawer .db{padding:16px}
+.drawer .grp{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut2);margin:16px 0 9px}
+.drawer .grp:first-child{margin-top:0}
+.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-bottom:8px}
+.seg button{flex:1;background:#0a0e14;border:none;border-right:1px solid var(--line);color:var(--mut);
+  padding:7px 4px;font-size:11px;font-weight:600}
+.seg button:last-child{border-right:none}
+.seg button.on{background:var(--acc);color:#fff}
+.closex{background:none;border:none;color:var(--mut);font-size:20px;line-height:1;padding:0 4px}
+.closex:hover{color:#fff}
+
+/* scope + diagnostics */
+.lower{display:grid;grid-template-columns:1fr 360px;gap:0;border-top:1px solid var(--line)}
+.scopewrap{padding:14px 16px;border-right:1px solid var(--line)}
+.scopehd{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.scopehd .ttl{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut2)}
+.probechips{display:flex;gap:5px;flex-wrap:wrap;margin-left:auto}
+.chip{font-family:var(--mono);font-size:11px;padding:3px 9px;border-radius:14px;border:1px solid var(--line);
+  background:#0a0e14;color:var(--mut);cursor:pointer}
+.chip:hover{border-color:var(--acc);color:var(--ink)}
+.chip.on{background:rgba(244,183,64,.12);border-color:var(--volt);color:var(--volt)}
+.scopebox{background:#070a0e;border:1px solid var(--line);border-radius:var(--r);position:relative}
+canvas{display:block;width:100%}
+.readouts{display:flex;gap:14px;flex-wrap:wrap;margin-top:11px}
+.ro{font-family:var(--mono);font-size:12px;display:flex;align-items:center;gap:6px}
+.ro .sw{width:11px;height:3px;border-radius:2px}
+.ro .v{font-weight:600}
+.cablesec{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
+/* multi-source */
+.srcblock{padding-bottom:10px;margin-bottom:2px}
+.srchd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.srcidx{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--mut2);white-space:nowrap}
+.srctypebar{display:flex;gap:0;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.srcdivider{text-align:center;font-size:11px;color:var(--mut);padding:6px 0;border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);letter-spacing:.1em}
+.srctotal{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding:6px 10px;background:rgba(67,211,154,.07);border:1px solid rgba(67,211,154,.2);border-radius:6px;font-size:11px;color:var(--mut)}
+.srctotal b{font-family:var(--mono);color:var(--ok);font-size:13px}
+.cablehd{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.cablehd .tog{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:var(--ink)}
+.cabR{font-family:var(--mono);font-size:12px;color:var(--volt);background:rgba(244,183,64,.1);
+  border:1px solid rgba(244,183,64,.3);border-radius:5px;padding:1px 7px}
+.cablebody{display:flex;flex-direction:column;gap:0}
+.cabinfo{display:flex;align-items:center}
+.tracetoggle{display:flex;gap:6px;align-items:center;font-size:11px;color:var(--mut)}
+.tracetoggle label{display:flex;gap:4px;align-items:center;cursor:pointer;font-family:var(--mono)}
+.scopetools{display:flex;gap:5px;align-items:center;margin-left:auto}
+.stbtn{font-family:var(--mono);font-size:11px;padding:3px 9px;border-radius:6px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--mut);cursor:pointer;line-height:1.4}
+.stbtn:hover{border-color:var(--acc);color:var(--ink)}
+.stbtn.on{background:rgba(91,157,255,.14);border-color:var(--acc);color:var(--acc)}
+.scopebox canvas{cursor:crosshair;display:block;width:100%}
+.curreadout{display:none;margin-top:9px;font-family:var(--mono);font-size:11.5px;gap:18px;flex-wrap:wrap}
+.curreadout.show{display:flex}
+.curreadout .grp{display:flex;flex-direction:column;gap:2px}
+.curreadout .grp .hd{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut2)}
+.curreadout .grp .ln{color:var(--ink)}
+.curreadout .grp .ln b{color:var(--mut)}
+
+.diag{padding:14px 16px;overflow-y:auto}
+.diag h3{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut2);margin:0 0 10px}
+.diag h3:not(:first-child){margin-top:20px}
+.dcap{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:11px;margin-bottom:9px}
+.dcap.bad{border-color:rgba(255,106,93,.5)}
+.dcap .ct{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+.dcap .ct b{font-size:12px}
+.dline{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;padding:2px 0;color:var(--mut)}
+.dline .r{color:var(--ink)}
+.dline .r.warn{color:var(--warn)} .dline .r.ok{color:var(--ok)}
+.powentry{margin-top:0}
+.powmode{display:flex;gap:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;width:fit-content;margin-bottom:4px}
+.pmb{background:var(--panel2);border:none;color:var(--mut);font-family:var(--mono);font-size:11px;padding:3px 11px;cursor:pointer;transition:background .12s}
+.pmb:hover{color:var(--ink)}
+.pmb.on{background:rgba(91,157,255,.18);color:var(--acc);font-weight:600}
+.powderived{display:flex;flex-direction:column;gap:4px}
+.powval{font-family:var(--mono);font-size:12px;color:var(--mut);padding:5px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:var(--r);display:block}
+/* efficiency waterfall */
+.efftable{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-radius:7px;overflow:hidden;margin-bottom:10px}
+.effhd{display:grid;grid-template-columns:1fr 52px 52px 80px;gap:0;padding:5px 10px;background:var(--panel2);color:var(--mut2);font-size:10px;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid var(--line)}
+.effrow{display:grid;grid-template-columns:1fr 52px 52px 80px;gap:0;padding:6px 10px;border-bottom:1px solid #0e131b;align-items:center}
+.effrow.effroot{background:rgba(255,255,255,.015)}
+.efftotal{display:grid;grid-template-columns:1fr 52px 52px 80px;padding:6px 10px;background:var(--panel2);color:var(--mut);font-weight:600;border-top:1px solid var(--line)}
+.effname{display:flex;flex-direction:column;gap:1px}
+.effnote{color:var(--mut);font-size:9.5px;font-weight:400}
+.effeta{font-weight:600}
+.effloss{color:var(--mut)}
+.effpow{color:var(--ink);text-align:right}
+.barmini{height:5px;background:#0a0e14;border-radius:3px;overflow:hidden;margin-top:5px}
+.barmini i{display:block;height:100%;background:var(--ok)}
+.barmini.over i{background:var(--warn)}
+.rec{background:rgba(81,128,255,.08);border:1px solid rgba(81,128,255,.3);border-radius:7px;padding:10px 12px;
+  font-size:12px;line-height:1.5;color:var(--ink)}
+.rec b{color:var(--acc)}
+.note{font-size:11px;color:var(--mut2);line-height:1.5;margin-top:8px}
+.empty{color:var(--mut2);font-size:12px;font-style:italic;padding:6px 0}
+
+/* math reference panel */
+.mathpanel{position:fixed;top:0;right:0;bottom:0;width:480px;background:var(--panel);border-left:1px solid var(--line);
+  z-index:41;transform:translateX(100%);transition:.18s;overflow-y:auto;box-shadow:-12px 0 32px rgba(0,0,0,.5)}
+.mathpanel.open{transform:none}
+.mathbody{padding:18px 20px 40px}
+.mathbody h2{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--acc);
+  margin:22px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+.mathbody h2:first-child{margin-top:0}
+.msec{margin-bottom:4px}
+.msec-hd{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--mut2);
+  margin:14px 0 6px;cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none}
+.msec-hd::before{content:"▶";font-size:8px;color:var(--mut);transition:.12s;flex-shrink:0}
+.msec-hd.open::before{content:"▼"}
+.msec-body{display:none;margin-bottom:6px}
+.msec-body.show{display:block}
+.mform{background:#080c12;border:1px solid var(--line);border-radius:7px;padding:11px 13px;margin-bottom:8px;font-family:var(--mono)}
+.mform .sym{font-size:12.5px;color:#a8c0e0;line-height:1.7}
+.mform .sub{font-size:11.5px;color:var(--mut);margin-top:5px;border-top:1px solid #111827;padding-top:5px;line-height:1.7}
+.mform .res{font-size:13px;font-weight:700;color:var(--ok);margin-top:5px;border-top:1px solid #111827;padding-top:5px}
+.mform sup{font-size:8px;vertical-align:super;line-height:0}
+.mform sub{font-size:8px;vertical-align:sub;line-height:0}
+.mwhy{background:rgba(91,157,255,.06);border:1px solid rgba(91,157,255,.18);border-radius:6px;
+  padding:9px 12px;font-size:11.5px;line-height:1.65;color:#8ba8cc;margin-bottom:8px;display:none}
+.mwhy.show{display:block}
+.mwhy b{color:#a8c0e0}
+.mwhytog{font-size:10px;color:var(--acc);cursor:pointer;margin-bottom:5px;display:inline-block;user-select:none;
+  background:rgba(91,157,255,.1);border-radius:4px;padding:2px 7px}
+.mnote{font-size:11px;color:var(--mut);line-height:1.5;margin-bottom:8px;padding-left:10px;border-left:2px solid var(--line)}
+.mnosim{color:var(--mut);font-size:12px;padding:30px 0;text-align:center;font-style:italic}
+/* energy flow bar */
+.flowbar{padding:12px 18px 14px;border-bottom:1px solid var(--line);background:var(--panel);display:none}
+.flowbar.show{display:block}
+.flowbar-hd{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut2);margin-bottom:10px;display:flex;justify-content:space-between;align-items:baseline}
+.flowbar-hd .bottleneck-lbl{font-size:11px;letter-spacing:0;text-transform:none;color:var(--warn);font-weight:600}
+.flowbar-stages{display:flex;align-items:stretch;gap:0;width:100%;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.fstage{flex:1 1 0;min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--line);position:relative;background:var(--panel2)}
+.fstage:last-child{border-right:none}
+.fstage.bottleneck{box-shadow:inset 0 0 0 2px var(--warn);z-index:1}
+.fstage.bottleneck .fs-name{color:var(--warn)}
+.fs-track{flex:1;position:relative;min-height:44px;overflow:hidden}
+.fs-bg{position:absolute;inset:0;opacity:.12}
+.fs-fill{position:absolute;bottom:0;left:0;right:0;transition:height .3s}
+.fs-limit{position:absolute;left:0;right:0;height:2px;background:rgba(255,255,255,.55);box-shadow:0 0 4px rgba(255,255,255,.3)}
+.fs-pct{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+.fs-foot{padding:5px 7px 6px;border-top:1px solid var(--line)}
+.fs-name{font-size:10px;font-weight:600;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
+.fs-vals{font-family:var(--mono);font-size:9.5px;color:var(--mut);margin-top:1px;display:flex;flex-direction:column;gap:1px}
+.fs-vals .av{color:var(--ink)}
+.fs-vals .lm{color:var(--mut)}
+.fs-vals .ls{color:var(--warn)}
+
+@media(max-width:980px){
+  .work{grid-template-columns:1fr}
+  .col{border-right:none;border-bottom:1px solid var(--line)}
+  .lower{grid-template-columns:1fr}
+  .scopewrap{border-right:none;border-bottom:1px solid var(--line)}
+  .drawer{width:100%}
+}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="brand"><b>Reservoir<span>.</span></b><small>PoE++ amplifier power-budget bench</small></div>
+  <div class="filectl">
+    <button class="btn sm" id="saveBtn">↓ Save</button>
+    <button class="btn sm" id="saveAsBtn">↓ Save As…</button>
+    <label class="btn sm filelbl" title="Open a .reservoir file">↑ Open<input type="file" id="openFile" accept=".reservoir,.json" style="display:none"></label>
+    <span class="fname" id="fname">unsaved</span>
+  </div>
+  <div class="simctl">
+    <label>Transient time (s)<input class="field" id="simT" type="number" step="0.05" min="0.02" max="20" value="1"></label>
+    <label>Rate (kHz)<input class="field" id="simFs" type="number" step="1" min="2" max="96" value="48"></label>
+    <label>Seed<input class="field" id="simSeed" type="number" step="1" value="7"></label>
+    <button class="btn primary" id="runBtn">Run ▸</button>
+    <button class="btn sm" id="mathBtn" title="Show calculation references">∑ Math</button>
+  </div>
+</div>
+
+<div class="verdict" id="verdict"></div>
+<div class="flowbar" id="flowbar"></div>
+<div class="work">
+  <div class="col src">
+    <div class="colhd">Power source</div>
+    <div class="card src" id="srcCard"></div>
+    <div class="note">PoE++ Type 4 / Class 8 delivers 90&nbsp;W at the PSE and 71.3&nbsp;W at the powered device, over a 41.1–57&nbsp;V range. Set the device-side power as the hard limit your design may never exceed.</div>
+  </div>
+
+  <div class="col mid">
+    <div class="colhd">Conversion &amp; storage chain</div>
+    <div class="addbar">
+      <button class="btn sm" data-add="converter">+ Converter</button>
+      <button class="btn sm" data-add="cap">+ Capacitor bank</button>
+    </div>
+    <div class="bus" id="bus"></div>
+    <div class="note">Power flows left→right. Tap any rail node (●) to probe its voltage and current on the scope. A converter with a constant-power loop is what keeps the source draw inside the PoE budget; a capacitor bank on its output rail supplies the crest-factor peaks.</div>
+  </div>
+
+  <div class="col load">
+    <div class="colhd">Load / output</div>
+    <div class="card load" id="loadCard"></div>
+    <div class="note">One output channel shown. Duplicate it to model multi-channel amplifiers; independent channels let peaks partially de-correlate, easing the buffer.</div>
+  </div>
+</div>
+
+<div class="lower">
+  <div class="scopewrap">
+    <div class="scopehd">
+      <span class="ttl">Probe scope</span>
+      <span class="tracetoggle" style="margin-left:14px">
+        <label><input type="checkbox" id="trV" checked> V</label>
+        <label><input type="checkbox" id="trI" checked> I</label>
+        <label><input type="checkbox" id="trP"> P</label>
+      </span>
+      <div class="probechips" id="probechips"></div>
+      <div class="scopetools">
+        <button class="stbtn" id="zoomOut" title="Zoom out (time)">−</button>
+        <button class="stbtn" id="zoomIn" title="Zoom in (time)">+</button>
+        <button class="stbtn" id="zoomFit" title="Fit full transient">Fit</button>
+        <button class="stbtn" id="curToggle" title="Toggle measurement cursors">Cursors</button>
+      </div>
+    </div>
+    <div class="scopebox"><canvas id="scope"></canvas></div>
+    <div class="readouts" id="readouts"></div>
+    <div class="curreadout" id="curreadout"></div>
+  </div>
+  <div class="diag" id="diag"></div>
+</div>
+
+<div class="drawer" id="drawer">
+  <div class="dh"><b id="drawerTitle">Block</b><button class="closex" id="drawerClose">×</button></div>
+  <div class="db" id="drawerBody"></div>
+</div>
+
+<div class="mathpanel" id="mathPanel">
+  <div class="dh"><b>∑ Calculation reference</b><button class="closex" id="mathClose">×</button></div>
+  <div class="mathbody" id="mathBody"></div>
+</div>
+
+<script>
+/* ============================ ENGINE ============================ */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function gaussian(rng){let u=0,v=0;while(u===0)u=rng();while(v===0)v=rng();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+function biquadHP(fc,fs,Q){const w=2*Math.PI*fc/fs,c=Math.cos(w),s=Math.sin(w),al=s/(2*Q);const b0=(1+c)/2,b1=-(1+c),b2=(1+c)/2,a0=1+al,a1=-2*c,a2=1-al;return{b0:b0/a0,b1:b1/a0,b2:b2/a0,a1:a1/a0,a2:a2/a0};}
+function biquadLP(fc,fs,Q){const w=2*Math.PI*fc/fs,c=Math.cos(w),s=Math.sin(w),al=s/(2*Q);const b0=(1-c)/2,b1=1-c,b2=(1-c)/2,a0=1+al,a1=-2*c,a2=1-al;return{b0:b0/a0,b1:b1/a0,b2:b2/a0,a1:a1/a0,a2:a2/a0};}
+function applyBiquad(x,bq){const y=new Float64Array(x.length);let x1=0,x2=0,y1=0,y2=0;for(let i=0;i<x.length;i++){const xi=x[i];const yi=bq.b0*xi+bq.b1*x1+bq.b2*x2-bq.a1*y1-bq.a2*y2;x2=x1;x1=xi;y2=y1;y1=yi;y[i]=yi;}return y;}
+function rms(x){let s=0;for(let i=0;i<x.length;i++)s+=x[i]*x[i];return Math.sqrt(s/x.length);}
+function peakAbs(x){let m=0;for(let i=0;i<x.length;i++){const a=Math.abs(x[i]);if(a>m)m=a;}return m;}
+function minOf(x){let m=Infinity;for(let i=0;i<x.length;i++)if(x[i]<m)m=x[i];return m;}
+function maxOf(x){let m=-Infinity;for(let i=0;i<x.length;i++)if(x[i]>m)m=x[i];return m;}
+function meanOf(x){let s=0;for(let i=0;i<x.length;i++)s+=x[i];return s/x.length;}
+function normRMS(x){const r=rms(x)||1;const y=new Float64Array(x.length);for(let i=0;i<x.length;i++)y[i]=x[i]/r;return y;}
+function crestDB(x){return 20*Math.log10(peakAbs(x)/(rms(x)||1e-12));}
+function pinkFromWhite(w){const y=new Float64Array(w.length);let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;for(let i=0;i<w.length;i++){const wt=w[i];b0=0.99886*b0+wt*0.0555179;b1=0.99332*b1+wt*0.0750759;b2=0.96900*b2+wt*0.1538520;b3=0.86650*b3+wt*0.3104856;b4=0.55000*b4+wt*0.5329522;b5=-0.7616*b5-wt*0.0168980;y[i]=(b0+b1+b2+b3+b4+b5+b6+wt*0.5362)*0.11;b6=wt*0.115926;}return y;}
+function shapeToCrest(x,targetDB){let y=normRMS(x);if(crestDB(y)<=targetDB)return y;let lo=0.05,hi=40;for(let it=0;it<46;it++){const g=(lo+hi)/2;const t=new Float64Array(y.length);for(let i=0;i<y.length;i++)t[i]=Math.tanh(g*y[i]);const cf=crestDB(normRMS(t));if(cf>targetDB)lo=g;else hi=g;}const g=(lo+hi)/2;const t=new Float64Array(y.length);for(let i=0;i<y.length;i++)t[i]=Math.tanh(g*y[i]);return normRMS(t);}
+function genSignal({type,fs,N,freq=1000,crestDB:cf=10,seed=1,audio=null}){
+  if(type==='audio'&&audio&&audio.length>1)return normRMS(audio);
+  const rng=mulberry32(seed>>>0);
+  if(type==='dc')return new Float64Array(N).fill(1);
+  if(type==='sine'){const y=new Float64Array(N);for(let i=0;i<N;i++)y[i]=Math.SQRT2*Math.sin(2*Math.PI*freq*i/fs);return y;}
+  const w=new Float64Array(N);for(let i=0;i<N;i++)w[i]=gaussian(rng);
+  if(type==='white')return shapeToCrest(w,cf);
+  const pink=pinkFromWhite(w);
+  if(type==='pink')return shapeToCrest(pink,cf);
+  let s=applyBiquad(pink,biquadHP(120,fs,0.7));s=applyBiquad(s,biquadLP(6300,fs,0.7));
+  const tgt=(type==='eia6')?6:(type==='eia10')?10:cf;
+  return shapeToCrest(s,tgt);
+}
+function buildTopology(model){
+  const src0=model.sources?model.sources[0]:model.source;
+  const rails=[{idx:0,C:0,caps:[],Vtarget:src0.V,stiff:true,name:'Source'}];
+  const converters=[];let cur=0;
+  for(const it of model.items){
+    if(it.type==='cap'){
+      const Cbank=it.Ceach*it.Np/it.Ns;
+      rails[cur].caps.push({...it,Cbank,VratingBank:it.Vrating*it.Ns,ESRbank:it.ESReach*it.Ns/it.Np,IripBank:it.Irip*it.Np});
+      rails[cur].C+=Cbank; if(cur!==0)rails[cur].stiff=false;
+    }else{
+      const out={idx:rails.length,C:0,caps:[],Vtarget:it.Vout,stiff:true,name:'Rail '+rails.length};
+      rails.push(out);converters.push({...it,inRail:cur,outRail:out.idx});cur=out.idx;
+    }
+  }
+  return {rails,converters,finalRail:cur};
+}
+// Ethernet cable resistance model.
+// Loop resistance per pair (Ω/m) for common gauges (two conductors = loop).
+// Cat 5e = 24 AWG ≈ 0.1876 Ω/m loop; Cat 6 = 23 AWG ≈ 0.1488; Cat 6a = 23 AWG (same copper, same gauge).
+// 802.3bt uses up to 4 pairs in parallel, PoE+ uses 2.
+// R_total = (Ω_per_m_loop / pairs_in_parallel) * length_m
+const CABLE_GAUGES={cat5e:{name:'Cat 5e · 24 AWG',Rpml:0.1876},cat6:{name:'Cat 6 · 23 AWG',Rpml:0.1488},cat6a:{name:'Cat 6a · 22 AWG',Rpml:0.1182},manual:{name:'Manual',Rpml:null}};
+function cableOhms(cab){if(!cab||!cab.enabled)return 0;if(cab.gauge==='manual')return Math.max(0,+cab.Rmanual||0);
+  const g=CABLE_GAUGES[cab.gauge]||CABLE_GAUGES.cat5e;
+  return g.Rpml*Math.max(1,+cab.length||1)/Math.max(1,+cab.pairs||2);}
+function simulate(model){
+  const fs=model.sim.fs,T=model.sim.T,N=Math.max(8,Math.round(fs*T)),dt=1/fs;
+  // Resolve source(s) — support both legacy single source and new sources array
+  const sources=model.sources||[model.source];
+  const src0=sources[0];
+  // Combined source limits (sum of all source budgets)
+  const PmaxCombined=sources.reduce((a,s)=>a+(s.Pmax||0),0);
+  const ImaxCombined=sources.reduce((a,s)=>a+(s.Imax||0),0);
+  // Cable is per-source[0] for now (multi-source AC shares a common DC bus post-PSU)
+  const cable0=src0.cable||model.cable||{enabled:false};
+
+  const topo=buildTopology(model),rails=topo.rails,converters=topo.converters,finalRail=topo.finalRail;
+  const L=model.load,chans=Math.max(1,L.channels|0),Pavg=loadPavgFromEntry(L),independent=L.mode==='independent';
+  const sigs=[];
+  for(let c=0;c<chans;c++)sigs.push(genSignal({type:L.type,fs,N,freq:L.freq,crestDB:L.crestDB,seed:(independent?(model.seed+c*101):model.seed),audio:L.audio}));
+  const eta_amp_flat=Math.min(0.999,Math.max(0.1,L.ampEff));
+  // Amp efficiency: use curve if defined, else flat scalar
+  const Ppeak_amp=Pavg*crestLinear(L.crestDB||10); // rated peak for normalisation
+  function ampEff(Pacoustic){
+    if(!L.ampEffCurve||L.ampEffCurve.length<2)return eta_amp_flat;
+    const x=Pacoustic/Math.max(1e-6,Ppeak_amp);
+    return Math.min(0.999,Math.max(0.1,crSpline(L.ampEffCurve,Math.max(0,Math.min(1,x)))));
+  }
+  const Pload=new Float64Array(N);const Pout=new Float64Array(N);let maxVpk=0;
+  for(let i=0;i<N;i++){
+    let p=0;for(let c=0;c<chans;c++){const v=sigs[c][i];p+=Pavg*v*v;}
+    Pout[i]=p;
+    const eta_i=ampEff(p);
+    Pload[i]=p/eta_i;
+  }
+  // scalar eta for diagnostics (use flat or curve at avg operating point)
+  const eta=ampEff(Pavg);
+  for(let c=0;c<chans;c++){const vpk=peakAbs(sigs[c])*Math.sqrt(Pavg*L.R);if(vpk>maxVpk)maxVpk=vpk;}
+  // Per-converter loop-bandwidth low-pass filter state (1st order IIR on demand current)
+  // τ = 1/(2π·fbw); α = dt/(τ+dt) = 2π·fbw·dt/(1+2π·fbw·dt)
+  const loopAlpha=converters.map(c=>{
+    const fbw=c.loopBW>0?c.loopBW:Infinity;
+    if(!isFinite(fbw))return 1; // infinite BW = no filtering
+    const tau=1/(2*Math.PI*fbw);
+    return dt/(tau+dt);
+  });
+  const loopIout=converters.map(()=>0); // filtered Iout state
+
+  // Nonlinear efficiency interpolation helper
+  // effCurve: [{p: 0..1 (fraction of Plimit), e: 0..1}] sorted by p
+  function interpEff(cv,Pout_actual){
+    if(!cv.effCurve||cv.effCurve.length<2)return Math.min(0.999,Math.max(0.05,cv.eff));
+    const pts=cv.effCurve;
+    const Prated=cv.Plimit||1;
+    const x=Pout_actual/Prated; // normalised 0..1+
+    if(x<=pts[0].p)return pts[0].e;
+    if(x>=pts[pts.length-1].p)return pts[pts.length-1].e;
+    for(let k=0;k<pts.length-1;k++){
+      if(x>=pts[k].p&&x<=pts[k+1].p){
+        const t=(x-pts[k].p)/(pts[k+1].p-pts[k].p);
+        // Catmull-Rom tangents for smooth curve through points
+        const e0=pts[k].e,e1=pts[k+1].e;
+        const m0=k>0?(pts[k+1].e-pts[k-1].e)/(pts[k+1].p-pts[k-1].p)*( pts[k+1].p-pts[k].p):e1-e0;
+        const m1=k<pts.length-2?(pts[k+2].e-pts[k].e)/(pts[k+2].p-pts[k].p)*(pts[k+1].p-pts[k].p):e1-e0;
+        const t2=t*t,t3=t2*t;
+        return (2*t3-3*t2+1)*e0+(t3-2*t2+t)*m0+(-2*t3+3*t2)*e1+(t3-t2)*m1;
+      }
+    }
+    return pts[pts.length-1].e;
+  }
+
+  const Rcable=cableOhms(cable0);
+  // Map from rail index → converter output impedance (Ω), for droop calculation
+  const railZout=new Float64Array(rails.length); // 0 = ideal
+  converters.forEach(c=>{if(c.Zout>0)railZout[c.outRail]=c.Zout;});
+  const V=rails.map(r=>r.Vtarget);
+  const rec={railV:rails.map(()=>new Float64Array(N)),railIin:rails.map(()=>new Float64Array(N)),railIload:rails.map(()=>new Float64Array(N)),capI:rails.map(()=>new Float64Array(N)),convIout:converters.map(()=>new Float64Array(N)),convIin:converters.map(()=>new Float64Array(N)),srcI:new Float64Array(N),srcP:new Float64Array(N),cableVdrop:new Float64Array(N),cablePdiss:new Float64Array(N),Pload,N,dt,fs};
+  const feeder={};converters.forEach((c,ci)=>feeder[c.outRail]=ci);
+  for(let i=0;i<N;i++){
+    const demand=new Float64Array(rails.length);
+    demand[finalRail]=Pload[i]/Math.max(1e-6,V[finalRail]);
+    const Iout_store=new Float64Array(converters.length);
+    for(let ci=converters.length-1;ci>=0;ci--){
+      const c=converters[ci],orl=c.outRail,irl=c.inRail,Vout=Math.max(1e-6,V[orl]),Idown=demand[orl],r=rails[orl];
+      let Iout_des; if(r.stiff)Iout_des=Idown; else{const Kp=c.Ilimit/(0.004*c.Vout);Iout_des=Idown+Kp*(c.Vout-V[orl]);}
+      // Apply loop-bandwidth filter: slow demand through 1st-order IIR
+      const alpha=loopAlpha[ci];
+      const Iout_filt=loopIout[ci]+alpha*(Iout_des-loopIout[ci]);
+      loopIout[ci]=Iout_filt;
+      let Iout=Math.max(0,Iout_filt);let Imax=c.Ilimit;
+      const eff_raw=interpEff(c,Iout*Math.max(1e-6,V[orl])); // nonlinear η at current operating point
+      const eff=Math.min(0.999,Math.max(0.05,eff_raw));
+      if(c.mode==='cp'||c.mode==='cvcp'){const Pcap=(c.plimitRef==='in')?c.Plimit*eff:c.Plimit;Imax=Math.min(Imax,Pcap/Vout);}
+      if(Iout>Imax)Iout=Imax;Iout_store[ci]=Iout;
+      const Pin=Vout*Iout/eff,Vin=Math.max(1e-6,V[irl]),Iin=Pin/Vin;
+      demand[irl]+=Iin;rec.convIout[ci][i]=Iout;rec.convIin[ci][i]=Iin;
+    }
+    const Isrc=demand[0];
+    const Vdrop=Rcable*Isrc;const Vcable=Math.max(0,model.source.V-Vdrop);
+    rec.srcI[i]=Isrc;rec.srcP[i]=Isrc*model.source.V;  // PSE-side power (what the switch delivers)
+    rec.cableVdrop[i]=Vdrop;rec.cablePdiss[i]=Isrc*Vdrop;
+    for(let ri=0;ri<rails.length;ri++){
+      const arriving=(ri===0)?demand[0]:(feeder[ri]!=null?Iout_store[feeder[ri]]:0);
+      let icap=0;
+      if(!rails[ri].stiff){icap=arriving-demand[ri];V[ri]+=icap/Math.max(1e-9,rails[ri].C)*dt;if(V[ri]<0.001)V[ri]=0.001;}
+      else V[ri]= (ri===0) ? Vcable : rails[ri].Vtarget;
+      // Output impedance droop: the observed voltage droops with load current.
+      // Applied to the *recorded* voltage (seen by downstream stages & probes) but NOT to
+      // the internal V[] state used by the regulator's error signal — this prevents
+      // unstable positive feedback between droop and the P-controller.
+      const Vrecord=(ri>0&&railZout[ri]>0)?Math.max(0.001,V[ri]-railZout[ri]*arriving):V[ri];
+      rec.railV[ri][i]=Vrecord;rec.railIin[ri][i]=arriving;rec.railIload[ri][i]=demand[ri];rec.capI[ri][i]=icap;
+    }
+  }
+  // diagnostics
+  const diag={rails:[],source:{},load:{},converters:[]};
+  const srcPpk=maxOf(rec.srcP),srcPavg=meanOf(rec.srcP),srcImax=maxOf(rec.srcI);
+  // Per-source violation: check each source independently (current shared by number of sources)
+  const srcViolations=sources.map(s=>{
+    const share=sources.length>1?0.5:1; // simplified: assume equal sharing
+    return {label:s.label||s.id,Pmax:s.Pmax,Imax:s.Imax,
+      Pviol:srcPpk*share>s.Pmax*1.0005,Iviol:srcImax*share>s.Imax*1.0005};
+  });
+  diag.source={Pavg:srcPavg,Ppk:srcPpk,Imax:srcImax,
+    Pmax:PmaxCombined,Ilim:ImaxCombined,
+    Pviol:srcPpk>PmaxCombined*1.0005,Iviol:srcImax>ImaxCombined*1.0005,
+    headroom:PmaxCombined-srcPpk,
+    perSource:srcViolations,
+    cable:{R:Rcable,Vdrop_pk:maxOf(rec.cableVdrop),Vdrop_avg:meanOf(rec.cableVdrop),
+      Pdiss_pk:maxOf(rec.cablePdiss),Pdiss_avg:meanOf(rec.cablePdiss),
+      Vpd_min:src0.V-maxOf(rec.cableVdrop),Vpd_max:src0.V-minOf(rec.cableVdrop)}};
+  converters.forEach((c,ci)=>{
+    diag.converters.push({i:ci,name:'Stage '+(ci+1),topo:c.topo,mode:c.mode,
+      IoutPk:maxOf(rec.convIout[ci]),IinPk:maxOf(rec.convIin[ci]),
+      PoutPk:maxOf(rec.convIout[ci])*maxOf(rec.railV[c.outRail])});
+  });
+  rails.forEach((r,ri)=>{
+    if(r.caps.length===0)return;
+    const Vp=maxOf(rec.railV[ri]),Vmin=minOf(rec.railV[ri]),Irip=rms(rec.capI[ri]);
+    const Vtgt=r.Vtarget;
+    r.caps.forEach((cap,k)=>{
+      const IperCap=Irip/cap.Np;const Itot=Math.sqrt(IperCap*IperCap+(cap.swRipple||0)*(cap.swRipple||0));
+      const Pdiss=Itot*Itot*cap.ESReach;const VperCap=Vp/cap.Ns;
+      const f0=cap.tanFreq||120;const ESRtan=cap.tanDelta/(2*Math.PI*f0*Math.max(1e-9,cap.Ceach));
+      const Ebuf=0.5*cap.Cbank*(Vp*Vp-Vmin*Vmin);
+      diag.rails.push({railIdx:ri,id:cap.id,label:cap.label,Vp,Vmin,Vtgt,VperCap,Cbank:cap.Cbank,
+        Irip:Itot,IripEnv:IperCap,IripRating:cap.Irip,iViol:Itot>cap.Irip*1.0005,
+        Pdiss,VperCapRating:cap.Vrating,vViol:VperCap>cap.Vrating*1.0005,
+        derate:VperCap/cap.Vrating, iload:Itot/cap.Irip,
+        ESRtan,ESRused:cap.ESReach,Ebuf,Np:cap.Np,Ns:cap.Ns});
+    });
+  });
+  let VminF=minOf(rec.railV[finalRail]);
+  diag.load={speakerVpk:maxVpk,railVmin:VminF,clip:maxVpk>VminF*0.985,
+    PloadPk:maxOf(Pout),PloadAvg:meanOf(Pout),
+    PampPk:maxOf(Pload),PampAvg:meanOf(Pload),eta};
+  return {rec,topo,diag,N,dt,fs,sigs};
+}
+
+/* ============================ STATE ============================ */
+let uid=6; const nid=()=>'b'+(uid++);
+const M={
+  seed:7, sim:{fs:48000,T:1.0},
+  sources:[
+    {id:'s1',type:'poe',label:'PoE++ Type 4',V:52,Imax:1.7,Pmax:91,
+     ac:{Vrms:230,freq:50,Imax:16,PF:0.95},
+     cable:{enabled:true,length:100,gauge:'cat6a',pairs:4,Rmanual:null}}
+  ],
+  // legacy aliases kept for file compat — derived from sources[0]
+  get source(){return this.sources[0];},
+  get cable(){return this.sources[0].cable;},
+  items:[
+    {id:'b1',type:'converter',topo:'flyback',mode:'cvcp',Vout:48,Plimit:70,plimitRef:'out',Ilimit:6,eff:0.94,Vmin:36,Vmax:58,loopBW:null,effCurve:null,Zout:0},
+    {id:'b2',type:'cap',label:'Buffer bank',Ceach:0.0022,Np:4,Ns:1,Vrating:100,ESReach:0.030,tanDelta:0.12,tanFreq:120,Irip:2.4,swRipple:0.4},
+    {id:'b3',type:'converter',topo:'buck',mode:'cvcp',Vout:24,Plimit:100,plimitRef:'in',Ilimit:8,eff:0.92,Vmin:26,Vmax:54,loopBW:null,effCurve:null,Zout:0},
+    {id:'b5',type:'cap',label:'Cap bank',Ceach:0.001,Np:8,Ns:1,Vrating:63,ESReach:0.05,tanDelta:0.1,tanFreq:120,Irip:1.5,swRipple:0.2},
+  ],
+  load:{R:4,type:'eia10',Pavg:60,crestDB:10,freq:1000,ampEff:0.85,ampEffCurve:null,channels:8,mode:'correlated',audio:null,powerMode:'peak'}
+};
+let SIM=null, sel=null, probeRail=0, audioBuf=null;
+let scopeView={t0:0,t1:1};          // visible time window (seconds)
+let cursors={on:false,a:0.25,b:0.75,drag:null}; // a,b are times in seconds
+let scopeGeom=null;                 // {padL,pw,padT,ph,traces:[{name,col,mn,mx}]} from last draw
+let lastT=-1, panStart=null;
+
+/* ============================ HELPERS ============================ */
+function si(x,unit,dp){ if(x==null||!isFinite(x))return '—';
+  const a=Math.abs(x);let v=x,p='';
+  if(a>=1e6){v=x/1e6;p='M';}else if(a>=1e3){v=x/1e3;p='k';}
+  else if(a===0){v=0;}else if(a<1e-9){v=x*1e12;p='p';}else if(a<1e-6){v=x*1e9;p='n';}
+  else if(a<1e-3){v=x*1e6;p='µ';}else if(a<1){v=x*1e3;p='m';}
+  const d=dp==null?(Math.abs(v)>=100?0:Math.abs(v)>=10?1:2):dp;
+  return v.toFixed(d)+(p||'')+(unit||'');
+}
+const $=s=>document.querySelector(s);
+function el(t,c,h){const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;}
+
+/* ============================ RENDER: SOURCE ============================ */
+const AC_PRESETS=[
+  {label:'US 120V/60Hz/15A', Vrms:120,freq:60,Imax:15,PF:0.95},
+  {label:'EU 230V/50Hz/16A', Vrms:230,freq:50,Imax:16,PF:0.95},
+  {label:'UK 230V/50Hz/13A', Vrms:230,freq:50,Imax:13,PF:0.95},
+  {label:'JP 100V/60Hz/15A', Vrms:100,freq:60,Imax:15,PF:0.95},
+  {label:'AU 230V/50Hz/10A', Vrms:230,freq:50,Imax:10,PF:0.95},
+];
+function acPmax(s){return s.ac.Vrms*s.ac.Imax*s.ac.PF;}
+
+function srcCard(s,idx){
+  const cab=s.cable||{enabled:false,length:50,gauge:'cat5e',pairs:4,Rmanual:null};
+  const R=cableOhms(cab);
+  const isAC=s.type==='ac';
+  const gaugeOpts=Object.entries(CABLE_GAUGES).map(([k,v])=>`<option value="${k}" ${cab.gauge===k?'selected':''}>${v.name}</option>`).join('');
+  let html=`<div class="srchd">
+    <span class="srcidx">Source ${idx+1}</span>
+    <div class="srctypebar">
+      <button class="stbtn${!isAC?' on':''}" data-stype="poe" data-sidx="${idx}">PoE/DC</button>
+      <button class="stbtn${isAC?' on':''}" data-stype="ac" data-sidx="${idx}">AC Mains</button>
+    </div>
+    ${M.sources.length>1?`<button class="stbtn delsrc" data-sidx="${idx}">✕</button>`:''}
+  </div>`;
+  if(!isAC){
+    html+=`<div class="preset">
+      <button class="stbtn" data-sp="t4" data-sidx="${idx}">Type 4 · 91W</button>
+      <button class="stbtn" data-sp="t3" data-sidx="${idx}">Type 3 · 51W</button>
+      <button class="stbtn" data-sp="at" data-sidx="${idx}">PoE+ · 25.5W</button>
+    </div>
+    <div class="row">
+      <div class="f"><label>PSE Voltage (V)</label><input class="field src-v" data-sidx="${idx}" type="number" step="0.1" value="${s.V}"></div>
+      <div class="f"><label>Hard P max (W)</label><input class="field src-p" data-sidx="${idx}" type="number" step="0.1" value="${s.Pmax}"></div>
+    </div>
+    <div class="row">
+      <div class="f"><label>Hard I max (A)</label><input class="field src-i" data-sidx="${idx}" type="number" step="0.01" value="${s.Imax}"></div>
+    </div>`;
+  } else {
+    const pm=acPmax(s);
+    html+=`<div class="preset" style="flex-wrap:wrap">
+      ${AC_PRESETS.map((p,pi)=>`<button class="stbtn ac-preset" data-pi="${pi}" data-sidx="${idx}">${p.label.split('/')[0]}</button>`).join('')}
+    </div>
+    <div class="row">
+      <div class="f"><label>V<sub>rms</sub> (V)</label><input class="field src-acrms" data-sidx="${idx}" type="number" step="1" value="${s.ac.Vrms}"></div>
+      <div class="f"><label>Frequency (Hz)</label><input class="field src-acfreq" data-sidx="${idx}" type="number" step="1" value="${s.ac.freq}"></div>
+    </div>
+    <div class="row">
+      <div class="f"><label>I max (A)</label><input class="field src-aci" data-sidx="${idx}" type="number" step="0.5" value="${s.ac.Imax}"></div>
+      <div class="f"><label>Power factor</label><input class="field src-acpf" data-sidx="${idx}" type="number" step="0.01" min="0.5" max="1" value="${s.ac.PF}"></div>
+    </div>
+    <div class="row"><div class="f"><label style="color:var(--mut)">→ P max</label>
+      <span class="field" style="color:var(--ok);font-family:var(--mono)">${si(pm,'W')} = ${s.ac.Vrms}V × ${s.ac.Imax}A × ${s.ac.PF}</span>
+    </div></div>`;
+  }
+  // Cable section (PoE only — AC PSU handles its own input cabling)
+  if(!isAC){
+    html+=`<div class="cablesec">
+      <div class="cablehd">
+        <label class="tog"><input type="checkbox" class="cab-on" data-sidx="${idx}" ${cab.enabled?'checked':''}> <b>Ethernet cable loss</b></label>
+        ${R>0?`<span class="cabR">${R.toFixed(3)} Ω</span>`:''}
+      </div>
+      <div class="cablebody" id="cab_body_${idx}" style="${cab.enabled?'':'display:none'}">
+        <div class="row">
+          <div class="f"><label>Gauge / type</label><select class="field cab-gauge" data-sidx="${idx}">${gaugeOpts}</select></div>
+          <div class="f"><label>Pairs used</label><select class="field cab-pairs" data-sidx="${idx}">
+            <option value="2" ${cab.pairs===2?'selected':''}>2 pairs (PoE+)</option>
+            <option value="4" ${cab.pairs===4?'selected':''}>4 pairs (PoE++)</option>
+          </select></div>
+        </div>
+        <div class="row" id="cab_lenrow_${idx}" style="${cab.gauge==='manual'?'display:none':''}">
+          <div class="f"><label>Cable length (m)</label><input class="field cab-len" data-sidx="${idx}" type="number" step="1" min="1" max="200" value="${cab.length}"></div>
+          <div class="f cabinfo"><span style="color:var(--mut);font-size:11px">802.3bt max: 100 m</span></div>
+        </div>
+        <div class="row" id="cab_manrow_${idx}" style="${cab.gauge==='manual'?'':'display:none'}">
+          <div class="f"><label>Total loop R (Ω)</label><input class="field cab-man" data-sidx="${idx}" type="number" step="0.01" min="0" value="${cab.Rmanual||0}"></div>
+        </div>
+      </div>
+    </div>`;
+  }
+  return html;
+}
+
+function renderSource(){
+  const c=$('#srcCard');
+  let html=M.sources.map((s,i)=>`<div class="srcblock" id="srcblock_${i}">${srcCard(s,i)}</div>`).join('<div class="srcdivider">+</div>');
+  html+=`<button class="btn sm ghost" id="addSrcBtn" style="margin-top:10px;width:100%">+ Add power source</button>`;
+  if(M.sources.length>1){
+    const total=M.sources.reduce((a,s)=>a+(s.type==='ac'?acPmax(s):s.Pmax),0);
+    html+=`<div class="srctotal"><span>Combined budget</span><b>${si(total,'W')}</b></div>`;
+  }
+  c.innerHTML=html;
+
+  // Wire all events via delegation
+  c.querySelectorAll('[data-stype]').forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.sidx,s=M.sources[i];s.type=b.dataset.stype;
+    if(s.type==='ac'&&!s.ac)s.ac={Vrms:230,freq:50,Imax:16,PF:0.95};
+    // AC sources don't have PoE cable
+    if(s.type==='ac'&&s.cable)s.cable.enabled=false;
+    renderSource();schedule();});
+  c.querySelectorAll('.delsrc').forEach(b=>b.onclick=()=>{M.sources.splice(+b.dataset.sidx,1);renderSource();schedule();});
+  c.querySelectorAll('[data-sp]').forEach(b=>b.onclick=()=>{
+    const m={t4:{V:52,Pmax:91,Imax:1.7},t3:{V:51,Pmax:51,Imax:1.1},at:{V:50,Pmax:25.5,Imax:0.6}}[b.dataset.sp];
+    Object.assign(M.sources[+b.dataset.sidx],m);renderSource();schedule();});
+  c.querySelectorAll('.ac-preset').forEach(b=>b.onclick=()=>{
+    const p=AC_PRESETS[+b.dataset.pi];Object.assign(M.sources[+b.dataset.sidx].ac,p);
+    renderSource();schedule();});
+  c.querySelectorAll('.src-v').forEach(e=>e.oninput=()=>{M.sources[+e.dataset.sidx].V=+e.value;schedule();});
+  c.querySelectorAll('.src-p').forEach(e=>e.oninput=()=>{M.sources[+e.dataset.sidx].Pmax=+e.value;schedule();});
+  c.querySelectorAll('.src-i').forEach(e=>e.oninput=()=>{M.sources[+e.dataset.sidx].Imax=+e.value;schedule();});
+  c.querySelectorAll('.src-acrms').forEach(e=>e.oninput=()=>{M.sources[+e.dataset.sidx].ac.Vrms=+e.value;renderSource();schedule();});
+  c.querySelectorAll('.src-acfreq').forEach(e=>e.oninput=()=>{M.sources[+e.dataset.sidx].ac.freq=+e.value;schedule();});
+  c.querySelectorAll('.src-aci').forEach(e=>e.oninput=()=>{M.sources[+e.dataset.sidx].ac.Imax=+e.value;renderSource();schedule();});
+  c.querySelectorAll('.src-acpf').forEach(e=>e.oninput=()=>{M.sources[+e.dataset.sidx].ac.PF=+e.value;renderSource();schedule();});
+  c.querySelectorAll('.cab-on').forEach(cb=>cb.onchange=()=>{
+    const i=+cb.dataset.sidx;M.sources[i].cable.enabled=cb.checked;renderSource();schedule();});
+  c.querySelectorAll('.cab-gauge').forEach(e=>e.onchange=()=>{
+    M.sources[+e.dataset.sidx].cable.gauge=e.value;renderSource();schedule();});
+  c.querySelectorAll('.cab-pairs').forEach(e=>e.onchange=()=>{
+    M.sources[+e.dataset.sidx].cable.pairs=+e.value;renderSource();schedule();});
+  c.querySelectorAll('.cab-len').forEach(e=>e.oninput=()=>{
+    M.sources[+e.dataset.sidx].cable.length=+e.value;renderSource();schedule();});
+  c.querySelectorAll('.cab-man').forEach(e=>e.oninput=()=>{
+    M.sources[+e.dataset.sidx].cable.Rmanual=+e.value;renderSource();schedule();});
+  const addBtn=c.querySelector('#addSrcBtn');
+  if(addBtn)addBtn.onclick=()=>{
+    M.sources.push({id:'s'+(Date.now()%10000),type:'poe',label:'Source '+(M.sources.length+1),
+      V:52,Imax:1.7,Pmax:91,ac:{Vrms:230,freq:50,Imax:16,PF:0.95},
+      cable:{enabled:false,length:50,gauge:'cat5e',pairs:4,Rmanual:null}});
+    renderSource();schedule();};
+}
+
+// Peak ↔ avg power conversion for load entry.
+// Only meaningful when crest factor is defined (not DC, not audio from file).
+function crestHasFactor(type){return type!=='dc'&&type!=='audio';}
+function crestLinear(crestDB){return Math.pow(10,crestDB/10);} // power ratio = 10^(CF_dB/10)
+function loadPavgFromEntry(L){
+  // Returns Pavg regardless of which mode was entered.
+  if(L.powerMode==='peak'&&crestHasFactor(L.type))return L.Pavg/crestLinear(L.crestDB);
+  return L.Pavg; // stored value IS already avg when mode=avg or non-applicable
+}
+
+/* ============================ RENDER: LOAD ============================ */
+function renderLoad(){
+  const L=M.load;const c=$('#loadCard');
+  const sigOpts=[['eia10','EIA-426-B noise · 10 dB'],['eia6','EIA-426-B noise · 6 dB'],['pink','Pink noise'],['white','White noise'],['sine','Sine'],['dc','DC'],['audio','Audio file…']];
+  const hasCF=crestHasFactor(L.type);
+  const CF=crestLinear(L.crestDB);
+  // Derive both avg and peak from stored value + mode
+  const Pavg_disp = L.powerMode==='peak'&&hasCF ? L.Pavg/CF : L.Pavg;
+  const Ppeak_disp = hasCF ? Pavg_disp*CF : Pavg_disp;
+  const modeAvg=!hasCF||L.powerMode==='avg';
+  c.innerHTML=`
+   <div class="row"><div class="f"><label>Drive signal</label>
+     <select class="field" id="l_type">${sigOpts.map(o=>`<option value="${o[0]}" ${L.type===o[0]?'selected':''}>${o[1]}</option>`).join('')}</select></div></div>
+   <div class="row" id="l_audiorow" style="${L.type==='audio'?'':'display:none'}">
+     <div class="f"><label>Audio file</label><input class="field" id="l_audio" type="file" accept="audio/*"></div></div>
+   <div class="row" id="l_cfrow" style="${(L.type==='pink'||L.type==='white')?'':'display:none'}">
+     <div class="f"><label>Crest factor (dB)</label><input class="field" id="l_cf" type="number" step="0.5" value="${L.crestDB}"></div></div>
+   <div class="row" id="l_freqrow" style="${L.type==='sine'?'':'display:none'}">
+     <div class="f"><label>Frequency (Hz)</label><input class="field" id="l_freq" type="number" step="1" value="${L.freq}"></div></div>
+   <div class="row">
+     <div class="f"><label>Speaker (Ω)</label><input class="field" id="l_R" type="number" step="0.1" value="${L.R}"></div>
+   </div>
+   <div class="powentry">
+     <div class="powmode" id="l_pmrow" style="${hasCF?'':'display:none'}">
+       <button class="pmb${modeAvg?' on':''}" data-pm="avg">Avg W</button>
+       <button class="pmb${!modeAvg?' on':''}" data-pm="peak">Peak W</button>
+     </div>
+     <div class="row" style="margin-top:6px">
+       <div class="f">
+         <label>${modeAvg?'Avg power (W)':'Peak power (W)'}</label>
+         <input class="field" id="l_P" type="number" step="0.5" min="0.1" value="${modeAvg?Pavg_disp.toFixed(2):Ppeak_disp.toFixed(2)}">
+       </div>
+       <div class="f powderived" style="${hasCF?'':'visibility:hidden'}">
+         <label style="color:var(--mut)">${modeAvg?'→ peak':'→ avg'}</label>
+         <span class="field powval">${modeAvg?si(Ppeak_disp,'W'):si(Pavg_disp,'W')}</span>
+       </div>
+     </div>
+   </div>
+   <div class="row"><div class="f"><label>Amp efficiency model</label></div></div>
+   <div class="effmodebar">
+     <button class="stbtn${!L.ampEffCurve?' on':''}" id="ampEffFlat">Flat η</button>
+     <button class="stbtn${L.ampEffCurve?' on':''}" id="ampEffCurveBtn">Curve (Class D)</button>
+   </div>
+   <div id="ampEffFlatDiv" style="${L.ampEffCurve?'display:none':''}">
+     <div class="row"><div class="f"><label>Amp efficiency (0–1)</label><input class="field" id="l_eff" type="number" step="0.01" min="0.1" max="0.99" value="${L.ampEff}"></div></div>
+   </div>
+   <div id="ampEffCurveDiv" style="${L.ampEffCurve?'':'display:none'}">
+     <div class="effcurvehd">
+       <span style="font-size:10px;color:var(--mut)">X = fraction of peak load · Drag, right-click removes, click adds</span>
+       <div style="display:flex;gap:5px;margin-top:5px;flex-wrap:wrap">
+         <button class="stbtn" data-amppreset="classD">Class D typical</button>
+         <button class="stbtn" data-amppreset="classD_bt">Class D bridged</button>
+         <button class="stbtn" data-amppreset="flat">Reset flat</button>
+       </div>
+     </div>
+     <canvas id="ampEffCanvas" width="280" height="140" style="display:block;margin-top:8px;border-radius:6px;cursor:crosshair;background:#080c12;touch-action:none"></canvas>
+     <div id="ampEffPtsDisplay"></div>
+   </div>
+   <div class="row">
+     <div class="f"><label>Channels</label><input class="field" id="l_ch" type="number" step="1" min="1" max="16" value="${L.channels}"></div>
+     <div class="f"><label>Correlation</label><select class="field" id="l_mode" ${L.channels<2?'disabled':''}>
+        <option value="correlated" ${L.mode==='correlated'?'selected':''}>Correlated (worst)</option>
+        <option value="independent" ${L.mode==='independent'?'selected':''}>Independent</option></select></div>
+   </div>`;
+  const reb=()=>{renderLoad();schedule();};
+  c.querySelector('#l_type').onchange=e=>{M.load.type=e.target.value;
+    // if switching to a type without CF, revert mode to avg and ensure Pavg is avg-referenced
+    if(!crestHasFactor(e.target.value)&&M.load.powerMode==='peak'){
+      M.load.Pavg=loadPavgFromEntry(M.load);M.load.powerMode='avg';}
+    reb();};
+  // power mode toggle
+  c.querySelectorAll('.pmb').forEach(b=>b.onclick=()=>{
+    const newMode=b.dataset.pm;if(newMode===M.load.powerMode)return;
+    // convert stored value so the derived Pavg (used by sim) stays constant when switching display mode
+    // stored L.Pavg always tracks whatever was last entered in the field.
+    // We need to re-express current Pavg in the new display unit:
+    const curPavg=loadPavgFromEntry(M.load);
+    if(newMode==='peak') M.load.Pavg=curPavg*crestLinear(M.load.crestDB); // store peak
+    else M.load.Pavg=curPavg; // store avg
+    M.load.powerMode=newMode;reb();});
+  const bind=(id,key,fn)=>{const e=c.querySelector(id);if(e)e.oninput=ev=>{M.load[key]=fn?fn(ev.target.value):+ev.target.value;schedule();};};
+  bind('#l_freq','freq');bind('#l_R','R');
+  const flatEff=c.querySelector('#l_eff');if(flatEff)flatEff.oninput=e=>{M.load.ampEff=+e.target.value;schedule();};
+  // amp efficiency curve
+  const btnAmpFlat=c.querySelector('#ampEffFlat'),btnAmpCurve=c.querySelector('#ampEffCurveBtn');
+  const divAmpFlat=c.querySelector('#ampEffFlatDiv'),divAmpCurve=c.querySelector('#ampEffCurveDiv');
+  if(btnAmpFlat)btnAmpFlat.onclick=()=>{M.load.ampEffCurve=null;divAmpFlat.style.display='';divAmpCurve.style.display='none';btnAmpFlat.classList.add('on');btnAmpCurve.classList.remove('on');schedule();};
+  if(btnAmpCurve)btnAmpCurve.onclick=()=>{
+    if(!M.load.ampEffCurve)M.load.ampEffCurve=effCurvePresets('classD');
+    divAmpFlat.style.display='none';divAmpCurve.style.display='';btnAmpFlat.classList.remove('on');btnAmpCurve.classList.add('on');
+    setTimeout(()=>bindAmpEffCanvas(),0);schedule();};
+  c.querySelectorAll('[data-amppreset]').forEach(b=>b.onclick=()=>{
+    M.load.ampEffCurve=effCurvePresets(b.dataset.amppreset);
+    drawAmpEffCanvas();schedule();});
+  if(M.load.ampEffCurve)setTimeout(()=>bindAmpEffCanvas(),0);
+  // crest factor: keep avg power invariant when CF changes
+  const cfEl=c.querySelector('#l_cf');
+  if(cfEl)cfEl.oninput=e=>{
+    const newCF=+e.target.value;
+    const curPavg=loadPavgFromEntry(M.load); // current avg before CF change
+    M.load.crestDB=newCF;
+    if(M.load.powerMode==='peak') M.load.Pavg=curPavg*crestLinear(newCF); // re-express as peak under new CF
+    renderLoad();schedule();
+  };
+  // power field — stored value follows display mode
+  const pf=c.querySelector('#l_P');if(pf)pf.oninput=e=>{M.load.Pavg=Math.max(0.01,+e.target.value);schedule();};
+  c.querySelector('#l_ch').oninput=e=>{M.load.channels=Math.max(1,e.target.value|0);renderLoad();schedule();};
+  const md=c.querySelector('#l_mode');if(md)md.onchange=e=>{M.load.mode=e.target.value;schedule();};
+  const af=c.querySelector('#l_audio');
+  if(af)af.onchange=async e=>{const f=e.target.files[0];if(!f)return;
+    try{const ab=await f.arrayBuffer();const ac=new (window.AudioContext||window.webkitAudioContext)();
+      const buf=await ac.decodeAudioData(ab);const ch=buf.getChannelData(0);
+      const want=Math.round(M.sim.fs*M.sim.T);const out=new Float64Array(want);
+      for(let i=0;i<want;i++)out[i]=ch[i%ch.length];M.load.audio=out;schedule();
+      af.parentElement.querySelector('label').textContent='Audio file ✓ ('+f.name.slice(0,16)+')';
+    }catch(err){alert('Could not decode audio: '+err.message);}};
+}
+
+/* ============================ RENDER: PIPELINE ============================ */
+function renderBus(){
+  const bus=$('#bus');bus.innerHTML='';
+  const topo=buildTopology(M);
+  // source output tap (rail 0)
+  bus.appendChild(railTap(0,'Vsrc'));
+  let railCounter=0;
+  M.items.forEach((it,idx)=>{
+    bus.appendChild(blockEl(it,idx));
+    if(it.type==='converter'){railCounter++;bus.appendChild(railTap(railCounter,'Rail '+railCounter));}
+  });
+  // load tap = final rail already placed if last item was converter; if last was cap, finalRail tap already exists
+  highlightProbe();
+}
+function railTap(railIdx,label){
+  const t=el('div','tap');
+  t.innerHTML=`<div class="wire"></div><div class="dot" data-rail="${railIdx}"></div><div class="rlbl">${label}</div>`;
+  t.querySelector('.dot').onclick=()=>{probeRail=railIdx;buildProbeChips();drawScope();highlightProbe();};
+  return t;
+}
+function blockEl(it,idx){
+  const b=el('div','block '+(it.type==='cap'?'cap':'conv')+(sel===it.id?' sel':''));
+  let body='';
+  if(it.type==='converter'){
+    const modeTxt={cv:'CV',cc:'CC',cp:'CP',cvcp:'CV+CP'}[it.mode];
+    body=`<div class="bt"><span class="nm">Converter</span><span class="tag">${it.topo}</span></div>
+      <div class="kv">${modeTxt} · <b>${si(it.Vout,'V')}</b><br>
+      ${(it.mode==='cp'||it.mode==='cvcp')?`P&le; <b>${it.Plimit}W</b> ${it.plimitRef==='in'?'(in)':'(out)'}<br>`:''}
+      I&le; <b>${it.Ilimit}A</b> · η <b>${(it.eff*100).toFixed(0)}%</b>${it.Zout>0?`<br>Z<sub>out</sub> <b>${(it.Zout*1000).toFixed(0)}mΩ</b>`:''}</div>`;
+  }else{
+    body=`<div class="bt"><span class="nm">${it.label||'Cap bank'}</span><span class="tag">cap</span></div>
+      <div class="kv"><b>${si(it.Ceach*it.Np/it.Ns,'F')}</b> bank<br>
+      ${it.Np}P${it.Ns>1?'×'+it.Ns+'S':''} · ${si(it.Ceach,'F')} ea<br>
+      ESR <b>${si(it.ESReach,'Ω')}</b> · ${it.Vrating}V</div>`;
+  }
+  b.innerHTML=body+`<div class="viol">!</div>
+    <div class="ctrls"><button data-act="left">◀</button><button data-act="del">✕</button><button data-act="right">▶</button></div>`;
+  b.dataset.id=it.id;
+  b.onclick=ev=>{ if(ev.target.dataset.act)return; openDrawer(it.id); };
+  b.querySelectorAll('.ctrls button').forEach(btn=>btn.onclick=ev=>{ev.stopPropagation();
+    const a=btn.dataset.act;
+    if(a==='del'){M.items=M.items.filter(x=>x.id!==it.id);if(sel===it.id)closeDrawer();}
+    else if(a==='left'&&idx>0){[M.items[idx-1],M.items[idx]]=[M.items[idx],M.items[idx-1]];}
+    else if(a==='right'&&idx<M.items.length-1){[M.items[idx+1],M.items[idx]]=[M.items[idx],M.items[idx+1]];}
+    renderBus();schedule();});
+  return b;
+}
+function highlightProbe(){
+  document.querySelectorAll('.tap .dot').forEach(d=>d.classList.toggle('active',+d.dataset.rail===probeRail));
+}
+function markViolations(){
+  document.querySelectorAll('.block').forEach(b=>b.classList.remove('hasviol'));
+  if(!SIM)return;
+  SIM.diag.rails.forEach(c=>{ if(c.vViol||c.iViol){
+    const b=document.querySelector('.block[data-id="'+c.id+'"]');if(b)b.classList.add('hasviol');}});
+}
+
+/* ============================ DRAWER ============================ */
+function openDrawer(id){sel=id;const it=M.items.find(x=>x.id===id);if(!it){closeDrawer();return;}
+  $('#drawerTitle').textContent=it.type==='converter'?'Converter stage':'Capacitor bank';
+  const body=$('#drawerBody');
+  if(it.type==='converter')body.innerHTML=convForm(it); else body.innerHTML=capForm(it);
+  wireDrawer(it);$('#drawer').classList.add('open');renderBus();}
+function closeDrawer(){sel=null;$('#drawer').classList.remove('open');renderBus();}
+function seg(name,val,opts){return `<div class="seg" data-seg="${name}">${opts.map(o=>`<button data-v="${o[0]}" class="${val===o[0]?'on':''}">${o[1]}</button>`).join('')}</div>`;}
+function fld(label,id,val,step){return `<div class="f"><label>${label}</label><input class="field" data-k="${id}" type="number" step="${step||'any'}" value="${val}"></div>`;}
+function convForm(it){
+  const hasCurve=it.effCurve&&it.effCurve.length>=2;
+  return `<div class="grp">Topology</div>
+   ${seg('topo',it.topo,[['buck','Buck'],['boost','Boost'],['buckboost','B-Boost'],['flyback','Flyback'],['pfc','PFC Boost'],['llc','LLC Res.']])}
+   <div class="grp">Regulation mode</div>
+   ${seg('mode',it.mode,[['cv','CV'],['cc','CC'],['cp','CP'],['cvcp','CV + CP limit']])}
+   <div class="grp">Setpoints &amp; limits</div>
+   <div class="row">${fld('Output V','Vout',it.Vout,0.1)}${fld('Peak I (A)','Ilimit',it.Ilimit,0.1)}</div>
+   <div class="row">${fld('Power limit (W)','Plimit',it.Plimit,0.5)}${fld('V min','Vmin',it.Vmin,0.1)}</div>
+   <div class="row">${fld('V max','Vmax',it.Vmax,0.1)}</div>
+   <div class="row">
+     <div class="f"><label>Output impedance Z<sub>out</sub> (mΩ) <small style="color:var(--mut)">0=ideal</small></label>
+       <input class="field" data-k="Zout" type="number" step="1" min="0" max="10000" placeholder="0" value="${(it.Zout||0)*1000}"></div>
+     <div class="f" style="display:flex;align-items:center"><span style="color:var(--mut);font-size:10.5px">Closed-loop droop:<br>V<sub>out</sub> = V<sub>set</sub> − Z<sub>out</sub>·I<br>Typical: 10–50 mΩ<br>buck, 100–500 mΩ LLC</span></div>
+   </div>
+   <div class="grp">Power-limit reference</div>
+   ${seg('plimitRef',it.plimitRef,[['in','Input (protects PoE)'],['out','Output']])}
+   <div class="grp">Control loop bandwidth</div>
+   <div class="row">
+     <div class="f"><label>Loop BW (Hz) <small style="color:var(--mut)">blank=ideal</small></label>
+       <input class="field" id="loopBWInp" type="number" step="100" min="100" max="500000" placeholder="∞" value="${it.loopBW!=null?it.loopBW:''}"></div>
+     <div class="f" style="display:flex;align-items:center"><span style="color:var(--mut);font-size:10.5px">Transients above BW<br>hit the buffer cap.<br>6.5kHz = typical<br>current-mode buck.</span></div>
+   </div>
+   <div class="grp">Efficiency model</div>
+   <div class="effmodebar">
+     <button class="stbtn${!hasCurve?' on':''}" id="effFlat">Flat η</button>
+     <button class="stbtn${hasCurve?' on':''}" id="effCurveBtn">Curve (datasheet)</button>
+   </div>
+   <div id="effFlatDiv" style="${hasCurve?'display:none':''}">
+     <div class="row">${fld('Flat efficiency (0–1)','eff',it.eff,0.01)}</div>
+   </div>
+   <div id="effCurveDiv" style="${hasCurve?'':'display:none'}">
+     <div class="effcurvehd">
+       <span style="font-size:10px;color:var(--mut)">Drag points · right-click removes · click empty to add</span>
+       <div style="display:flex;gap:5px;margin-top:5px;flex-wrap:wrap">
+         <button class="stbtn" data-preset="ccm">CCM PWM</button>
+         <button class="stbtn" data-preset="dcm">DCM/PFM</button>
+         <button class="stbtn" data-preset="burst">Burst mode</button>
+         <button class="stbtn" data-preset="flat">Reset flat</button>
+       </div>
+     </div>
+     <canvas id="effCanvas" width="280" height="140" style="display:block;margin-top:8px;border-radius:6px;cursor:crosshair;background:#080c12;touch-action:none"></canvas>
+     <div id="effPtsDisplay"></div>
+   </div>
+   <div class="note">A buck output must sit below its input; a boost above. The CP loop holds the source inside PoE budget — reference to <b>input</b> power for true PoE protection. Loop BW limits how fast the converter responds; audio peaks above this frequency are supplied by the buffer cap.<br><br><b>PFC Boost</b>: set V<sub>out</sub>~400V, feeds LLC or flyback. <b>LLC Resonant</b>: near-ZVS at design point, very high η at 50–70% load, use with AC/PFC input. Both benefit from the Curve efficiency model.</div>`;
+}
+// ---- Efficiency curve helpers ----
+let effDrag=null;
+function effCurvePresets(key){
+  const ccm= [{p:0.05,e:0.72},{p:0.10,e:0.82},{p:0.20,e:0.88},{p:0.40,e:0.93},{p:0.60,e:0.94},{p:0.80,e:0.93},{p:1.0,e:0.90}];
+  const dcm=  [{p:0.02,e:0.60},{p:0.05,e:0.72},{p:0.10,e:0.80},{p:0.20,e:0.86},{p:0.40,e:0.90},{p:0.70,e:0.90},{p:1.0,e:0.87}];
+  const burst=[{p:0.01,e:0.78},{p:0.03,e:0.88},{p:0.10,e:0.91},{p:0.25,e:0.93},{p:0.50,e:0.93},{p:0.80,e:0.91},{p:1.0,e:0.88}];
+  const flat= [{p:0.01,e:0.94},{p:0.50,e:0.94},{p:1.0,e:0.94}];
+  // PFC boost: high eff across most of range; light-load limited by switching losses
+  const pfc=  [{p:0.05,e:0.88},{p:0.10,e:0.93},{p:0.20,e:0.96},{p:0.40,e:0.975},{p:0.60,e:0.978},{p:0.80,e:0.975},{p:1.0,e:0.968}];
+  // LLC resonant: near-ZVS peak efficiency at resonant point (~50-70% load); falls at light/heavy
+  const llc=  [{p:0.05,e:0.88},{p:0.10,e:0.92},{p:0.25,e:0.96},{p:0.50,e:0.979},{p:0.70,e:0.981},{p:0.85,e:0.977},{p:1.0,e:0.965}];
+  // Class D amplifier presets (used for amp curve editor)
+  const classD=[{p:0.05,e:0.60},{p:0.10,e:0.72},{p:0.20,e:0.80},{p:0.40,e:0.86},{p:0.60,e:0.88},{p:0.80,e:0.87},{p:1.0,e:0.84}];
+  const classD_bt=[{p:0.05,e:0.70},{p:0.10,e:0.80},{p:0.20,e:0.86},{p:0.40,e:0.90},{p:0.60,e:0.91},{p:0.80,e:0.90},{p:1.0,e:0.87}];
+  return({ccm,dcm,burst,flat,pfc,llc,classD,classD_bt})[key]||ccm;
+}
+function crSpline(pts,x){
+  if(x<=pts[0].p)return pts[0].e;if(x>=pts[pts.length-1].p)return pts[pts.length-1].e;
+  for(let k=0;k<pts.length-1;k++){if(x>=pts[k].p&&x<=pts[k+1].p){
+    const t=(x-pts[k].p)/(pts[k+1].p-pts[k].p),e0=pts[k].e,e1=pts[k+1].e;
+    const m0=k>0?(pts[k+1].e-pts[k-1].e)/(pts[k+1].p-pts[k-1].p)*(pts[k+1].p-pts[k].p):e1-e0;
+    const m1=k<pts.length-2?(pts[k+2].e-pts[k].e)/(pts[k+2].p-pts[k].p)*(pts[k+1].p-pts[k].p):e1-e0;
+    const t2=t*t,t3=t2*t;return(2*t3-3*t2+1)*e0+(t3-2*t2+t)*m0+(-2*t3+3*t2)*e1+(t3-t2)*m1;}}
+  return pts[pts.length-1].e;
+}
+function drawEffCanvas(it){
+  const cv=document.getElementById('effCanvas');if(!cv||!it.effCurve)return;
+  const W=cv.width,H=cv.height,pad={l:30,r:8,t:8,b:22};const pw=W-pad.l-pad.r,ph=H-pad.t-pad.b;
+  const g=cv.getContext('2d');g.clearRect(0,0,W,H);
+  g.strokeStyle='#1a2030';g.lineWidth=1;
+  for(let i=0;i<=5;i++){const y=pad.t+ph*i/5;g.beginPath();g.moveTo(pad.l,y);g.lineTo(pad.l+pw,y);g.stroke();}
+  for(let i=0;i<=5;i++){const x=pad.l+pw*i/5;g.beginPath();g.moveTo(x,pad.t);g.lineTo(x,pad.t+ph);g.stroke();}
+  g.font='8px IBM Plex Mono';g.fillStyle='#5e6b7e';
+  g.textAlign='right';for(let i=0;i<=5;i++)g.fillText(((1-i/5)*100).toFixed(0)+'%',pad.l-3,pad.t+ph*i/5+3);
+  g.textAlign='center';for(let i=0;i<=5;i++)g.fillText((i*20)+'%',pad.l+pw*i/5,H-3);
+  const pts=it.effCurve;const px=p=>pad.l+p*pw,py=e=>pad.t+ph*(1-e);
+  g.strokeStyle='#28d3d3';g.lineWidth=1.5;g.beginPath();
+  for(let si=0;si<=200;si++){const x=si/200;const e=Math.max(0,Math.min(1,crSpline(pts,x)));si===0?g.moveTo(px(x),py(e)):g.lineTo(px(x),py(e));}
+  g.stroke();
+  pts.forEach((pt,i)=>{g.fillStyle=effDrag&&effDrag.ptIdx===i?'#fff':'#28d3d3';g.strokeStyle='#080c12';g.lineWidth=1.5;g.beginPath();g.arc(px(pt.p),py(pt.e),5,0,7);g.fill();g.stroke();});
+  const pkE=Math.max(...pts.map(p=>p.e));
+  g.fillStyle='#28d3d3';g.font='bold 9px IBM Plex Mono';g.textAlign='left';g.fillText('peak η '+(pkE*100).toFixed(1)+'%',pad.l+3,pad.t+11);
+}
+function updateEffPts(it){
+  const el=document.getElementById('effPtsDisplay');if(!el)return;
+  el.innerHTML=it.effCurve?'<div style="font-size:9.5px;font-family:var(--mono);color:var(--mut);margin-top:5px;display:flex;flex-wrap:wrap;gap:3px">'+
+    it.effCurve.map(pt=>`<span style="background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:2px 5px">${(pt.p*100).toFixed(0)}%→${(pt.e*100).toFixed(1)}%</span>`).join('')+'</div>':'';
+}
+function bindEffCanvas(it){
+  const cv=document.getElementById('effCanvas');if(!cv)return;
+  const pad={l:30,r:8,t:8,b:22};const W=cv.width,H=cv.height;const pw=W-pad.l-pad.r,ph=H-pad.t-pad.b;
+  const toD=(x,y)=>({p:Math.max(0.001,Math.min(1,(x-pad.l)/pw)),e:Math.max(0.30,Math.min(1,1-(y-pad.t)/ph))});
+  const nearPt=(x,y)=>{if(!it.effCurve)return-1;let bi=-1,bd=12;it.effCurve.forEach((pt,i)=>{const dx=pad.l+pt.p*pw-x,dy=pad.t+ph*(1-pt.e)-y;if(Math.sqrt(dx*dx+dy*dy)<bd){bd=Math.sqrt(dx*dx+dy*dy);bi=i;}});return bi;};
+  const getXY=e=>{const r=cv.getBoundingClientRect(),sc=W/r.width;return[(e.clientX-r.left)*sc,(e.clientY-r.top)*sc];};
+  cv.onmousedown=e=>{const[x,y]=getXY(e);if(e.button===2){const i=nearPt(x,y);if(i>=0&&it.effCurve.length>2){it.effCurve.splice(i,1);drawEffCanvas(it);updateEffPts(it);schedule();}return;}
+    const i=nearPt(x,y);if(i>=0)effDrag={it,ptIdx:i};else{if(!it.effCurve)it.effCurve=[];const d=toD(x,y);it.effCurve.push(d);it.effCurve.sort((a,b)=>a.p-b.p);drawEffCanvas(it);updateEffPts(it);schedule();}};
+  cv.oncontextmenu=e=>e.preventDefault();
+  const onMove=e=>{if(!effDrag||effDrag.it!==it)return;const[x,y]=getXY(e);const d=toD(x,y);it.effCurve[effDrag.ptIdx]=d;it.effCurve.sort((a,b)=>a.p-b.p);effDrag.ptIdx=it.effCurve.indexOf(d);drawEffCanvas(it);updateEffPts(it);schedule();};
+  const onUp=()=>{if(effDrag)drawEffCanvas(it);effDrag=null;};
+  if(cv._cleanup)cv._cleanup();
+  window.addEventListener('mousemove',onMove);window.addEventListener('mouseup',onUp);
+  cv._cleanup=()=>{window.removeEventListener('mousemove',onMove);window.removeEventListener('mouseup',onUp);};
+}
+// Amp efficiency canvas (violet colour, references M.load.ampEffCurve)
+let ampEffDrag=null;
+function drawAmpEffCanvas(){
+  const cv=document.getElementById('ampEffCanvas');if(!cv||!M.load.ampEffCurve)return;
+  const pts=M.load.ampEffCurve;
+  const W=cv.width,H=cv.height,pad={l:30,r:8,t:8,b:22};const pw=W-pad.l-pad.r,ph=H-pad.t-pad.b;
+  const g=cv.getContext('2d');g.clearRect(0,0,W,H);
+  g.strokeStyle='#1a2030';g.lineWidth=1;
+  for(let i=0;i<=5;i++){const y=pad.t+ph*i/5;g.beginPath();g.moveTo(pad.l,y);g.lineTo(pad.l+pw,y);g.stroke();}
+  for(let i=0;i<=5;i++){const x=pad.l+pw*i/5;g.beginPath();g.moveTo(x,pad.t);g.lineTo(x,pad.t+ph);g.stroke();}
+  g.font='8px IBM Plex Mono';g.fillStyle='#5e6b7e';
+  g.textAlign='right';for(let i=0;i<=5;i++)g.fillText(((1-i/5)*100).toFixed(0)+'%',pad.l-3,pad.t+ph*i/5+3);
+  g.textAlign='center';for(let i=0;i<=5;i++)g.fillText((i*20)+'%',pad.l+pw*i/5,H-3);
+  const px=p=>pad.l+p*pw,py=e=>pad.t+ph*(1-e);
+  g.strokeStyle='#a78bfa';g.lineWidth=1.5;g.beginPath();
+  for(let si=0;si<=200;si++){const x=si/200;const e=Math.max(0,Math.min(1,crSpline(pts,x)));si===0?g.moveTo(px(x),py(e)):g.lineTo(px(x),py(e));}
+  g.stroke();
+  pts.forEach((pt,i)=>{g.fillStyle=ampEffDrag&&ampEffDrag.ptIdx===i?'#fff':'#a78bfa';g.strokeStyle='#080c12';g.lineWidth=1.5;g.beginPath();g.arc(px(pt.p),py(pt.e),5,0,7);g.fill();g.stroke();});
+  const pkE=Math.max(...pts.map(p=>p.e));
+  g.fillStyle='#a78bfa';g.font='bold 9px IBM Plex Mono';g.textAlign='left';g.fillText('peak η '+(pkE*100).toFixed(1)+'%',pad.l+3,pad.t+11);
+  const el=document.getElementById('ampEffPtsDisplay');
+  if(el)el.innerHTML='<div style="font-size:9.5px;font-family:var(--mono);color:var(--mut);margin-top:5px;display:flex;flex-wrap:wrap;gap:3px">'+
+    pts.map(pt=>`<span style="background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:2px 5px">${(pt.p*100).toFixed(0)}%→${(pt.e*100).toFixed(1)}%</span>`).join('')+'</div>';
+}
+function bindAmpEffCanvas(){
+  const cv=document.getElementById('ampEffCanvas');if(!cv)return;
+  const pad={l:30,r:8,t:8,b:22};const W=cv.width,H=cv.height;const pw=W-pad.l-pad.r,ph=H-pad.t-pad.b;
+  const toD=(x,y)=>({p:Math.max(0.001,Math.min(1,(x-pad.l)/pw)),e:Math.max(0.20,Math.min(1,1-(y-pad.t)/ph))});
+  const nearPt=(x,y)=>{const pts=M.load.ampEffCurve;if(!pts)return-1;let bi=-1,bd=12;pts.forEach((pt,i)=>{const dx=pad.l+pt.p*pw-x,dy=pad.t+ph*(1-pt.e)-y;if(Math.sqrt(dx*dx+dy*dy)<bd){bd=Math.sqrt(dx*dx+dy*dy);bi=i;}});return bi;};
+  const getXY=e=>{const r=cv.getBoundingClientRect(),sc=W/r.width;return[(e.clientX-r.left)*sc,(e.clientY-r.top)*sc];};
+  cv.onmousedown=e=>{const[x,y]=getXY(e);if(e.button===2){const i=nearPt(x,y);if(i>=0&&M.load.ampEffCurve.length>2){M.load.ampEffCurve.splice(i,1);drawAmpEffCanvas();schedule();}return;}
+    const i=nearPt(x,y);if(i>=0)ampEffDrag={ptIdx:i};else{if(!M.load.ampEffCurve)M.load.ampEffCurve=[];const d=toD(x,y);M.load.ampEffCurve.push(d);M.load.ampEffCurve.sort((a,b)=>a.p-b.p);drawAmpEffCanvas();schedule();}};
+  cv.oncontextmenu=e=>e.preventDefault();
+  const onMove=e=>{if(!ampEffDrag)return;const[x,y]=getXY(e);const d=toD(x,y);M.load.ampEffCurve[ampEffDrag.ptIdx]=d;M.load.ampEffCurve.sort((a,b)=>a.p-b.p);ampEffDrag.ptIdx=M.load.ampEffCurve.indexOf(d);drawAmpEffCanvas();schedule();};
+  const onUp=()=>{if(ampEffDrag)drawAmpEffCanvas();ampEffDrag=null;};
+  if(cv._ampCleanup)cv._ampCleanup();
+  window.addEventListener('mousemove',onMove);window.addEventListener('mouseup',onUp);
+  cv._ampCleanup=()=>{window.removeEventListener('mousemove',onMove);window.removeEventListener('mouseup',onUp);};
+  drawAmpEffCanvas();
+}
+function capForm(it){
+  return `<div class="grp">Identity</div>
+   <div class="f"><label>Label</label><input class="field" data-k="label" type="text" value="${it.label||''}"></div>
+   <div class="grp">Bank arrangement</div>
+   <div class="row">${fld('Parallel (Np)','Np',it.Np,1)}${fld('Series (Ns)','Ns',it.Ns,1)}</div>
+   <div class="grp">Per-capacitor ratings</div>
+   <div class="row">${fld('Capacitance (F)','Ceach',it.Ceach,'any')}${fld('Voltage (V)','Vrating',it.Vrating,1)}</div>
+   <div class="row">${fld('ESR (Ω)','ESReach',it.ESReach,'any')}${fld('Ripple rating Irms (A)','Irip',it.Irip,0.1)}</div>
+   <div class="grp">Dissipation factor</div>
+   <div class="row">${fld('tan δ','tanDelta',it.tanDelta,0.01)}${fld('at freq (Hz)','tanFreq',it.tanFreq,1)}</div>
+   <div class="grp">Added HF ripple (per cap, Arms)</div>
+   ${fld('Switching ripple','swRipple',it.swRipple,0.1)}
+   <div class="note">Envelope ripple from buffering is computed by the simulator. Add the converter's switching-frequency ripple here (it sums in quadrature with the envelope term). tan δ implies ESR = tan δ ⁄ (2π f C) at the stated frequency — compared against your ESR entry in diagnostics.</div>`;
+}
+function wireDrawer(it){
+  const body=$('#drawerBody');
+  const oldCv=body.querySelector('#effCanvas');if(oldCv&&oldCv._cleanup)oldCv._cleanup();
+  body.querySelectorAll('[data-seg]').forEach(s=>{const key=s.dataset.seg;
+    s.querySelectorAll('button').forEach(b=>b.onclick=()=>{it[key]=b.dataset.v;openDrawer(it.id);schedule();});});
+  body.querySelectorAll('[data-k]').forEach(inp=>{const key=inp.dataset.k;
+    if(key==='Zout')return; // handled separately with mΩ conversion
+    inp.oninput=()=>{ it[key]= inp.type==='text'? inp.value : +inp.value; renderBus();schedule(); };});
+  if(it.type!=='converter')return;
+  const bwInp=body.querySelector('#loopBWInp');
+  if(bwInp)bwInp.oninput=()=>{it.loopBW=bwInp.value===''?null:Math.max(1,+bwInp.value);renderBus();schedule();};
+  // Zout: displayed in mΩ, stored in Ω
+  const zoutInp=body.querySelector('[data-k="Zout"]');
+  if(zoutInp)zoutInp.oninput=()=>{it.Zout=Math.max(0,+zoutInp.value)/1000;renderBus();schedule();};
+  const btnFlat=body.querySelector('#effFlat'),btnCurveBtn=body.querySelector('#effCurveBtn');
+  const divFlat=body.querySelector('#effFlatDiv'),divCurve=body.querySelector('#effCurveDiv');
+  if(btnFlat)btnFlat.onclick=()=>{it.effCurve=null;divFlat.style.display='';divCurve.style.display='none';btnFlat.classList.add('on');btnCurveBtn.classList.remove('on');schedule();};
+  if(btnCurveBtn)btnCurveBtn.onclick=()=>{
+    if(!it.effCurve)it.effCurve=effCurvePresets(it.topo==='flyback'?'ccm':it.topo);
+    divFlat.style.display='none';divCurve.style.display='';btnFlat.classList.remove('on');btnCurveBtn.classList.add('on');
+    setTimeout(()=>{drawEffCanvas(it);updateEffPts(it);bindEffCanvas(it);},0);schedule();};
+  body.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>{it.effCurve=effCurvePresets(b.dataset.preset);drawEffCanvas(it);updateEffPts(it);schedule();});
+  if(it.effCurve&&it.effCurve.length>=2)setTimeout(()=>{drawEffCanvas(it);updateEffPts(it);bindEffCanvas(it);},0);
+}
+
+/* ============================ VERDICT ============================ */
+function renderVerdict(){
+  const v=$('#verdict');if(!SIM){v.innerHTML='';return;}
+  const d=SIM.diag.source,L=SIM.diag.load;
+  const overP=d.Pviol, overI=d.Iviol;
+  const capViol=SIM.diag.rails.filter(c=>c.vViol||c.iViol).length;
+  const clip=L.clip;
+  const pass=!overP&&!overI&&capViol===0&&!clip;
+  const pctPk=Math.min(140,d.Ppk/d.Pmax*100), pctAvg=Math.min(140,d.Pavg/d.Pmax*100);
+  const limPos=Math.min(100,100*d.Pmax/Math.max(d.Pmax,d.Ppk*1.0));
+  v.innerHTML=`
+   <div class="gauge">
+     <div class="hd"><span class="t">PoE budget — source power draw</span>
+       <span class="${pass?'pill pass':'pill fail'}">${pass?'within budget':'limit exceeded'}</span></div>
+     <div class="bar ${overP?'over':''}">
+       <div class="fillavg" style="width:${Math.min(100,pctAvg)}%"></div>
+       <div class="fillpk" style="width:${Math.min(100,pctPk)}%"></div>
+       <div class="limit" style="left:${limPos}%"></div>
+       <div class="lbl">peak ${si(d.Ppk,'W')} · avg ${si(d.Pavg,'W')} · limit ${si(d.Pmax,'W')}</div>
+     </div>
+     <div class="hd" style="margin-top:8px"><span class="t">Peak source current</span>
+       <span class="v" style="color:${overI?'var(--warn)':'var(--ink)'}">${si(d.Imax,'A')} / ${si(d.Ilim,'A')} max</span></div>
+   </div>
+   <div class="stat ${d.headroom<0?'bad':'good'}"><div class="k">Budget headroom</div><div class="val">${si(d.headroom,'W')}</div></div>
+   <div class="stat"><div class="k">Peak load <small style="opacity:.6">(into speaker)</small></div><div class="val">${si(L.PloadPk,'W')}<small> / avg ${si(L.PloadAvg,'W',0)} · ${(L.PloadPk/Math.max(1e-9,L.PloadAvg)).toFixed(1)}×</small></div></div>
+   <div class="stat"><div class="k">Amp draw <small style="opacity:.6">(elec, ÷η)</small></div><div class="val">${si(L.PampPk,'W')}<small> / avg ${si(L.PampAvg,'W',0)}</small></div></div>
+   ${d.cable.R>0?`<div class="stat ${d.cable.Vpd_min<41.1?'bad':''}">
+     <div class="k">Cable loss <small style="opacity:.6">(${d.cable.R.toFixed(2)} Ω)</small></div>
+     <div class="val">${si(d.cable.Pdiss_avg,'W')} avg<small> · pk ${si(d.cable.Pdiss_pk,'W')}</small></div>
+     <div class="k" style="margin-top:4px">PD voltage</div>
+     <div class="val">${si(d.cable.Vpd_min,'V')}–${si(d.cable.Vpd_max,'V')}<small>${d.cable.Vpd_min<41.1?' ⚠ below 41.1V min':''}</small></div>
+   </div>`:''}
+   <div class="stat ${capViol?'bad':''}"><div class="k">Cap violations</div><div class="val">${capViol||'0'}</div></div>
+   <div class="stat ${clip?'bad':'good'}"><div class="k">Amp clipping</div><div class="val">${clip?'YES':'no'}</div></div>`;
+}
+
+/* ============================ ENERGY FLOW BAR ============================ */
+function renderFlow(){
+  const fb=$('#flowbar');
+  if(!SIM){fb.className='flowbar';fb.innerHTML='';return;}
+  const src=SIM.diag.source,ld=SIM.diag.load,cab=src.cable,convs=SIM.topo.converters;
+
+  // Build a stage list: {name, note, Pavg_in (actual avg power entering), Plimit (ceiling at this stage), loss, eta, isCP}
+  const stages=[];
+  const Psrc_budget=src.Pmax;       // hard PoE ceiling
+  const Psrc_avg=src.Pavg;          // actual measured avg draw from PSE
+  const Psrc_peak=src.Ppk;
+
+  // Stage 0: PSE / PoE budget
+  stages.push({name:'PoE budget',note:M.source.label||'',
+    Pavg:Psrc_avg, Plimit:Psrc_budget, loss:0,
+    util:Psrc_avg/Psrc_budget, isLimit:true, col:'#5b9dff'});
+
+  // Stage 1: cable (if present)
+  let Pavg_after=Psrc_avg;
+  if(cab.R>0){
+    const loss=cab.Pdiss_avg;
+    Pavg_after-=loss;
+    const util=(Psrc_avg)/Psrc_budget; // same as source, cable doesn't have its own limit
+    stages.push({name:'Cable',note:cab.R.toFixed(2)+'Ω · '+M.cable.length+'m',
+      Pavg:Pavg_after, Plimit:Psrc_budget-loss, loss, util:loss/Psrc_budget, isLoss:true, col:'#8888aa'});
+  }
+
+  // Converter stages
+  convs.forEach((cv,i)=>{
+    const eta=Math.min(0.999,Math.max(0.05,cv.eff));
+    const loss=Pavg_after*(1-eta);
+    const Pout=Pavg_after*eta;
+    // CP limit: for input-ref, limit is Plimit; for output-ref, effective input limit = Plimit/eta
+    const hasCP=(cv.mode==='cp'||cv.mode==='cvcp');
+    const Plimit_eff=hasCP?(cv.plimitRef==='in'?cv.Plimit:cv.Plimit/eta):Pavg_after*2; // 2× = no binding limit
+    const util=Pavg_after/Plimit_eff;
+    const modeLabel={cv:'CV',cc:'CC',cp:'CP',cvcp:'CV+CP'}[cv.mode]||cv.mode;
+    stages.push({name:'Conv '+(i+1),note:cv.topo.toUpperCase()+' '+modeLabel+(hasCP?' CP:'+si(cv.Plimit,'W'):''),
+      Pavg:Pout, Plimit:Plimit_eff, loss, util, isCP:hasCP, col:'#28d3d3', eta});
+    Pavg_after=Pout;
+  });
+
+  // Amplifier
+  const eta_amp=ld.eta;
+  const loss_amp=Pavg_after*(1-eta_amp);
+  const Pout_amp=Pavg_after*eta_amp; // acoustic avg
+  stages.push({name:'Amplifier',note:(eta_amp*100).toFixed(0)+'% η',
+    Pavg:Pout_amp, Plimit:Pavg_after, loss:loss_amp,
+    util:Pout_amp/Pavg_after, isAmp:true, col:'#a78bfa', eta:eta_amp});
+
+  // Acoustic target — what is being asked for
+  const Ptarget_avg=loadPavgFromEntry(M.load)*M.load.channels; // total avg acoustic demand
+  stages.push({name:'Target',note:M.load.channels+'ch · '+si(Ptarget_avg,'W')+' avg',
+    Pavg:Pout_amp, Plimit:Pout_amp, loss:0,
+    util:Ptarget_avg/Math.max(1e-6,Pout_amp), isTarget:true, col:'#43d39a'});
+
+  // Find bottleneck: stage with highest util that has a real limit (not just loss stages)
+  const limitStages=stages.filter(s=>!s.isLoss&&!s.isTarget);
+  const bottleneck=limitStages.reduce((a,b)=>b.util>a.util?b:a,limitStages[0]);
+  bottleneck.isBottleneck=true;
+
+  // Render
+  const maxP=Psrc_budget;
+  let stagesHtml=stages.map(s=>{
+    const fillH=Math.min(100,Math.max(2,(s.Pavg/maxP)*100));
+    const limitH=Math.min(100,(s.Plimit/maxP)*100);
+    const utilPct=Math.min(200,s.util*100);
+    const col=s.util>0.95?'var(--warn)':s.util>0.80?'var(--volt)':s.col;
+    const fillCol=s.isLoss?'#444466':col;
+    const pctLabel=s.isTarget?(s.util>1?'⚠ '+utilPct.toFixed(0)+'%':utilPct.toFixed(0)+'%'):(s.isLoss?si(s.loss,'W')+' lost':utilPct.toFixed(0)+'%');
+    const pctCol=s.util>0.95?'#ff6a5d':s.util>0.80?'var(--volt)':s.isLoss?'#9999bb':'#cdd6e8';
+    return `<div class="fstage${s.isBottleneck?' bottleneck':''}">
+      <div class="fs-track">
+        <div class="fs-bg" style="background:${fillCol}"></div>
+        <div class="fs-fill" style="height:${fillH}%;background:${fillCol};opacity:0.55"></div>
+        <div class="fs-limit" style="bottom:${limitH}%"></div>
+        <div class="fs-pct" style="color:${pctCol}">${pctLabel}</div>
+      </div>
+      <div class="fs-foot">
+        <div class="fs-name">${s.name}</div>
+        <div class="fs-vals">
+          <span class="av">${si(s.Pavg,'W')} avg</span>
+          ${!s.isLoss&&!s.isTarget?`<span class="lm">lim ${si(s.Plimit,'W')}</span>`:''}
+          ${s.loss>0.05?`<span class="ls">−${si(s.loss,'W')}</span>`:''}
+        </div>
+        <div class="fs-vals"><span style="color:var(--mut);font-size:9px">${s.note}</span></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  fb.className='flowbar show';
+  fb.innerHTML=`
+    <div class="flowbar-hd">
+      <span>Energy flow · avg power at each stage</span>
+      <span class="bottleneck-lbl">▲ ${bottleneck.name} is limiting</span>
+    </div>
+    <div class="flowbar-stages">${stagesHtml}</div>`;
+}
+
+
+function buildProbeChips(){
+  const wrap=$('#probechips');wrap.innerHTML='';
+  if(!SIM)return;
+  SIM.topo.rails.forEach((r,ri)=>{
+    const c=el('div','chip'+(ri===probeRail?' on':''),ri===0?'Source':('Rail '+ri));
+    c.onclick=()=>{probeRail=ri;buildProbeChips();drawScope();highlightProbe();};
+    wrap.appendChild(c);
+  });
+}
+function decimateSlice(arr,i0,i1,W){ // min/max decimation over [i0,i1)
+  const n=i1-i0;const out=[];const step=Math.max(1,Math.floor(n/W));
+  for(let i=i0;i<i1;i+=step){let mn=Infinity,mx=-Infinity;const e=Math.min(i1,i+step);
+    for(let j=i;j<e;j++){if(arr[j]<mn)mn=arr[j];if(arr[j]>mx)mx=arr[j];}out.push([mn,mx]);}
+  return out;
+}
+function niceStep(x){if(x<=0)return 1;const p=Math.pow(10,Math.floor(Math.log10(x)));const f=x/p;return (f<1.5?1:f<3?2:f<7?5:10)*p;}
+function fmtT(t){const a=Math.abs(t);if(a<1e-3)return (t*1e6).toFixed(0)+'µs';if(a<1)return (t*1e3).toFixed(a<0.1?2:1)+'ms';return t.toFixed(3)+'s';}
+function clampView(){const T=M.sim.T;if(!(scopeView.t1>scopeView.t0)||scopeView.t1>T+1e-9||scopeView.t0<-1e-9){scopeView.t0=0;scopeView.t1=T;}
+  scopeView.t0=Math.max(0,Math.min(scopeView.t0,T));scopeView.t1=Math.max(scopeView.t0+T*1e-4,Math.min(scopeView.t1,T));
+  cursors.a=Math.max(0,Math.min(cursors.a,T));cursors.b=Math.max(0,Math.min(cursors.b,T));}
+function drawScope(){
+  const cv=$('#scope');const box=cv.parentElement;const Wcss=box.clientWidth;const Hcss=300;
+  const dpr=window.devicePixelRatio||1;cv.width=Wcss*dpr;cv.height=Hcss*dpr;cv.style.height=Hcss+'px';
+  const g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,Wcss,Hcss);
+  const W=Wcss,H=Hcss,padL=8,padR=72,padT=14,padB=22;const pw=W-padL-padR,ph=H-padT-padB;
+  g.strokeStyle='#1c2533';g.beginPath();g.moveTo(padL,padT+ph/2);g.lineTo(padL+pw,padT+ph/2);g.stroke();
+  if(!SIM){g.strokeStyle='#11161f';g.lineWidth=1;for(let i=0;i<=10;i++){const x=padL+pw*i/10;g.beginPath();g.moveTo(x,padT);g.lineTo(x,padT+ph);g.stroke();}
+    g.fillStyle='#5e6b7e';g.font='12px IBM Plex Mono';g.fillText('Run a simulation to view traces',padL+10,padT+ph/2);scopeGeom=null;return;}
+  const fs=SIM.fs,N=SIM.N;clampView();
+  const t0=scopeView.t0,t1=scopeView.t1,span=t1-t0;
+  const i0=Math.max(0,Math.floor(t0*fs)),i1=Math.min(N,Math.max(i0+2,Math.ceil(t1*fs)));
+  const Ttox=t=>padL+pw*(t-t0)/span, xToT=x=>t0+(x-padL)/pw*span;
+  // time graticule (aligned to real time)
+  const step=niceStep(span/7);const first=Math.ceil(t0/step)*step;
+  g.strokeStyle='#11161f';g.lineWidth=1;g.fillStyle='#5e6b7e';g.font='10px IBM Plex Mono';
+  for(let t=first;t<=t1+1e-12;t+=step){const x=Ttox(t);g.beginPath();g.moveTo(x,padT);g.lineTo(x,padT+ph);g.stroke();
+    g.fillText(fmtT(t),x-12,H-7);}
+  g.strokeStyle='#0e131b';for(let i=0;i<=6;i++){const y=padT+ph*i/6;g.beginPath();g.moveTo(padL,y);g.lineTo(padL+pw,y);g.stroke();}
+  const ri=probeRail;const V=SIM.rec.railV[ri],I=SIM.rec.railIin[ri],Iload=SIM.rec.railIload[ri];
+  const P=new Float64Array(V.length);for(let k=0;k<V.length;k++)P[k]=V[k]*Iload[k];
+  const showV=$('#trV').checked,showI=$('#trI').checked,showP=$('#trP').checked;
+  const traces=[];
+  if(showV)traces.push({d:V,col:'#f4b740',name:'V',u:'V'});
+  if(showI)traces.push({d:I,col:'#28d3d3',name:'I',u:'A'});
+  if(showP)traces.push({d:P,col:'#a78bfa',name:'P',u:'W'});
+  const geomTraces=[];
+  traces.forEach(tr=>{
+    let mn=Infinity,mx=-Infinity;for(let j=i0;j<i1;j++){const v=tr.d[j];if(v<mn)mn=v;if(v>mx)mx=v;}
+    if(mn===mx){mx=mn+1;mn-=1;}const rng=mx-mn;mn-=rng*0.08;mx+=rng*0.08;
+    const dec=decimateSlice(tr.d,i0,i1,pw);
+    g.strokeStyle=tr.col;g.lineWidth=1.4;g.globalAlpha=.95;g.shadowColor=tr.col;g.shadowBlur=5;g.beginPath();
+    dec.forEach((mm,i)=>{const x=padL+pw*i/dec.length;
+      const yhi=padT+ph*(1-(mm[1]-mn)/(mx-mn));const ylo=padT+ph*(1-(mm[0]-mn)/(mx-mn));
+      if(i===0)g.moveTo(x,(yhi+ylo)/2);g.lineTo(x,yhi);g.lineTo(x,ylo);});
+    g.stroke();g.shadowBlur=0;g.globalAlpha=1;
+    geomTraces.push({name:tr.name,col:tr.col,u:tr.u,mn,mx,arr:tr.d});
+  });
+  scopeGeom={padL,padR,padT,ph,pw,t0,t1,fs,N,traces:geomTraces};
+  // Y-axis: for each horizontal gridline, show each trace's value at that fraction, colour-coded, stacked vertically on the right margin.
+  // Also draw a colour-coded "div size" scale label at the top-right per trace.
+  const nDiv=6; // matches the horizontal gridlines drawn above
+  if(geomTraces.length>0){
+    const rightX=W-4; // right edge
+    const lineH=9;    // px between stacked trace labels per gridline
+    const stackH=geomTraces.length*lineH;
+    g.font='8.5px IBM Plex Mono';g.textAlign='right';
+    for(let gi=0;gi<=nDiv;gi++){
+      const frac=gi/nDiv; // 0=top, 1=bottom
+      const yGrid=padT+ph*frac;
+      const yBase=yGrid-stackH/2+lineH*0.5; // vertically centre the label stack on the gridline
+      geomTraces.forEach((tr,ti)=>{
+        const val=tr.mx-(tr.mx-tr.mn)*frac; // value at this grid fraction
+        g.globalAlpha=0.82;g.fillStyle=tr.col;
+        g.fillText(si(val,tr.u), rightX, yBase+ti*lineH);
+      });
+    }
+    // per-trace "per-div" scale in top-right, small
+    g.font='8px IBM Plex Mono';g.textAlign='right';
+    geomTraces.forEach((tr,ti)=>{
+      const perDiv=si((tr.mx-tr.mn)/nDiv,tr.u)+'/div';
+      g.globalAlpha=0.6;g.fillStyle=tr.col;
+      g.fillText(perDiv, rightX, padT+12+ti*11);
+    });
+    g.globalAlpha=1;g.textAlign='left';
+  }
+  // cursors
+  if(cursors.on){
+    [['A',cursors.a],['B',cursors.b]].forEach(([lab,t])=>{
+      if(t<t0||t>t1)return;const x=Ttox(t);
+      g.strokeStyle='#5b9dff';g.lineWidth=1;g.setLineDash([4,3]);
+      g.beginPath();g.moveTo(x,padT);g.lineTo(x,padT+ph);g.stroke();g.setLineDash([]);
+      g.fillStyle='#5b9dff';g.fillRect(x-8,padT-1,16,13);g.fillStyle='#0a0d12';g.font='bold 9px IBM Plex Mono';g.fillText(lab,x-3,padT+8);
+      const idx=Math.max(0,Math.min(N-1,Math.round(t*fs)));
+      geomTraces.forEach(tn=>{const val=tn.arr[idx];const y=padT+ph*(1-(val-tn.mn)/(tn.mx-tn.mn));
+        g.fillStyle=tn.col;g.beginPath();g.arc(x,y,2.6,0,7);g.fill();});
+    });
+  }
+  // window stats readouts
+  const sl=(a)=>a.subarray(i0,i1);
+  const ro=$('#readouts');
+  const rows=[
+    {n:'V',c:'#f4b740',rms:rms(sl(V)),pk:maxOf(sl(V)),mn:minOf(sl(V)),u:'V'},
+    {n:'I',c:'#28d3d3',rms:rms(sl(I)),pk:maxOf(sl(I)),mn:minOf(sl(I)),u:'A'},
+    {n:'P (rail load)',c:'#a78bfa',rms:meanOf(sl(P)),pk:maxOf(sl(P)),mn:minOf(sl(P)),u:'W',avgLabel:'avg'},
+  ];
+  ro.innerHTML=`<span class="ro" style="color:var(--mut2)">window ${fmtT(t0)}–${fmtT(t1)}:</span>`+rows.map(r=>`<span class="ro"><span class="sw" style="background:${r.c}"></span>
+     ${r.n}: <span class="v">${r.avgLabel?'avg':'rms'} ${si(r.rms,r.u)}</span>
+     · pk ${si(r.pk,r.u)} · min ${si(r.mn,r.u)}</span>`).join('');
+  updateCurReadout();
+}
+function updateCurReadout(){
+  const box=$('#curreadout');
+  if(!cursors.on||!scopeGeom){box.className='curreadout';box.innerHTML='';return;}
+  box.className='curreadout show';
+  const{fs,N,traces}=scopeGeom;
+  const idxA=Math.max(0,Math.min(N-1,Math.round(cursors.a*fs)));
+  const idxB=Math.max(0,Math.min(N-1,Math.round(cursors.b*fs)));
+  const dt=cursors.b-cursors.a;
+  const valLines=(idx)=>traces.map(t=>`<span class="ln"><b>${t.name}</b> ${si(t.arr[idx],t.u)}</span>`).join('');
+  const dLines=traces.map(t=>`<span class="ln"><b>Δ${t.name}</b> ${si(t.arr[idxB]-t.arr[idxA],t.u)}</span>`).join('');
+  box.innerHTML=`
+    <div class="grp"><span class="hd">Cursor A</span><span class="ln"><b>t</b> ${fmtT(cursors.a)}</span>${valLines(idxA)}</div>
+    <div class="grp"><span class="hd">Cursor B</span><span class="ln"><b>t</b> ${fmtT(cursors.b)}</span>${valLines(idxB)}</div>
+    <div class="grp"><span class="hd">Δ (B−A)</span><span class="ln"><b>Δt</b> ${fmtT(Math.abs(dt))}</span>
+      <span class="ln"><b>1/Δt</b> ${si(dt?1/Math.abs(dt):Infinity,'Hz')}</span>${dLines}</div>`;
+}
+
+/* ============================ DIAGNOSTICS ============================ */
+function renderDiag(){
+  const d=$('#diag');if(!SIM){d.innerHTML='';return;}
+  let h='<h3>Capacitor banks</h3>';
+  if(SIM.diag.rails.length===0)h+='<div class="empty">No capacitor banks placed. Add one on a converter output rail to buffer the crest-factor peaks.</div>';
+  SIM.diag.rails.forEach(c=>{
+    const bad=c.vViol||c.iViol;
+    const iPct=Math.min(140,c.iload*100);
+    const vPct=Math.min(140,c.derate*100);
+    h+=`<div class="dcap ${bad?'bad':''}">
+      <div class="ct"><b>${c.label||'Cap'} <span class="mut">· rail ${c.railIdx}</span></b>
+        <span class="mono mut">${si(c.Cbank,'F')}</span></div>
+      <div class="dline"><span>Rail voltage</span><span class="r">${si(c.Vmin,'V')} → ${si(c.Vp,'V')} (tgt ${si(c.Vtgt,'V')})</span></div>
+      <div class="dline"><span>Per-cap voltage / rating</span><span class="r ${c.vViol?'warn':'ok'}">${si(c.VperCap,'V')} / ${c.VperCapRating}V (${(c.derate*100).toFixed(0)}%)</span></div>
+      <div class="barmini ${c.vViol?'over':''}"><i style="width:${vPct}%"></i></div>
+      <div class="dline" style="margin-top:6px"><span>Ripple current / rating</span><span class="r ${c.iViol?'warn':'ok'}">${si(c.Irip,'A')} / ${c.IripRating}A (${(c.iload*100).toFixed(0)}%)</span></div>
+      <div class="barmini ${c.iViol?'over':''}"><i style="width:${iPct}%"></i></div>
+      <div class="dline" style="margin-top:6px"><span>Power dissipated (per cap)</span><span class="r">${si(c.Pdiss,'W')}</span></div>
+      <div class="dline"><span>ESR — yours vs tan δ@${'120'}Hz</span><span class="r">${si(c.ESRused,'Ω')} vs ${si(c.ESRtan,'Ω')}</span></div>
+      <div class="dline"><span>Energy delivered in window</span><span class="r">${si(c.Ebuf,'J')}</span></div>
+    </div>`;
+  });
+  // recommendation: cap sizing for worst sag vs converter Vmin floor
+  const recRail=SIM.diag.rails.slice().sort((a,b)=>b.Cbank-a.Cbank)[0];
+  if(recRail){
+    // find feeding converter Vmin floor
+    const conv=SIM.topo.converters.find(cc=>cc.outRail===recRail.railIdx);
+    const floor=conv? conv.Vmin : recRail.Vtgt*0.85;
+    const num=recRail.Vtgt*recRail.Vtgt - recRail.Vmin*recRail.Vmin;
+    const den=recRail.Vtgt*recRail.Vtgt - floor*floor;
+    const Cneed = den>0 ? recRail.Cbank*num/den : recRail.Cbank;
+    h+='<h3>Sizing &amp; advice</h3>';
+    if(SIM.diag.source.Pviol){
+      h+=`<div class="rec">Source <b>exceeds the PoE budget</b> by ${si(-SIM.diag.source.headroom,'W')} at peak. Add or tighten a <b>constant-power limit</b> on a converter (referenced to input) at or below ${si(SIM.diag.source.Pmax,'W')}.</div>`;
+    } else if(recRail.Vmin<=floor*1.02){
+      h+=`<div class="rec">Buffer rail sags to ${si(recRail.Vmin,'V')}, near the ${si(floor,'V')} converter floor. To hold above it, scale the bank to ≈ <b>${si(Cneed,'F')}</b> (currently ${si(recRail.Cbank,'F')}).</div>`;
+    } else {
+      h+=`<div class="rec">Buffer holds ${si(recRail.Vmin,'V')} (floor ${si(floor,'V')}). You have margin — a bank of ≈ <b>${si(Cneed,'F')}</b> would still hold the floor for this signal, ${Cneed<recRail.Cbank?'so the bank could shrink':'keep current size'}.</div>`;
+    }
+    if(SIM.diag.load.clip)h+=`<div class="rec" style="margin-top:8px;background:rgba(255,106,93,.08);border-color:rgba(255,106,93,.3)">Rail droops to ${si(SIM.diag.load.railVmin,'V')} but the amp needs ≈ ${si(SIM.diag.load.speakerVpk,'V')} to swing the peak — <b>output will clip</b>. Raise the buffer rail or its capacitance.</div>`;
+  }
+  // ---- Efficiency waterfall ----
+  const src=SIM.diag.source;const ld=SIM.diag.load;const cab=src.cable;
+  const Psrc_avg=src.Pavg; // avg PSE draw
+  const convs=SIM.topo.converters;
+  // Build stages: each has a name, efficiency, and available avg power out
+  const stages=[];
+  let Pavail=M.source.Pmax; // budget ceiling (not measured draw — this shows max available)
+  stages.push({name:'PoE budget',eta:1,Pout:Pavail,loss:0,note:M.source.label||''});
+  if(cab.R>0){const eta_cable=1-cab.Pdiss_avg/Math.max(1e-6,Psrc_avg);
+    const loss=cab.Pdiss_avg;Pavail-=loss;
+    stages.push({name:'Cable ('+cab.R.toFixed(2)+'Ω)',eta:Math.max(0,eta_cable),Pout:Pavail,loss,note:M.cable.length+'m'});}
+  convs.forEach((cv,i)=>{const eta=Math.min(0.999,Math.max(0.05,cv.eff));const loss=Pavail*(1-eta);Pavail*=eta;
+    const modeLabel={cv:'CV',cc:'CC',cp:'CP',cvcp:'CV+CP'}[cv.mode]||cv.mode;
+    stages.push({name:'Converter '+(i+1),eta,Pout:Pavail,loss,note:cv.topo.toUpperCase()+' '+modeLabel});});
+  // amp stage
+  const eta_amp=ld.eta;const loss_amp=Pavail*(1-eta_amp);Pavail*=eta_amp;
+  stages.push({name:'Amplifier',eta:eta_amp,Pout:Pavail,loss:loss_amp,note:(eta_amp*100).toFixed(0)+'% eff'});
+  const eta_total=stages.slice(1).reduce((a,s)=>a*s.eta,1);
+  h+='<h3>System efficiency</h3>';
+  h+='<div class="efftable">';
+  h+='<div class="effhd"><span>Stage</span><span>η</span><span>Loss</span><span>Available (avg)</span></div>';
+  stages.forEach((s,i)=>{
+    const pct=(s.eta*100);const isFirst=i===0;
+    h+=`<div class="effrow ${isFirst?'effroot':''}">
+      <span class="effname">${s.name}<small class="effnote">${s.note}</small></span>
+      <span class="effeta" style="color:${isFirst?'var(--mut)':(s.eta>0.9?'var(--ok)':s.eta>0.75?'var(--volt)':'var(--warn)')}">${isFirst?'—':(pct.toFixed(1)+'%')}</span>
+      <span class="effloss">${isFirst?'—':si(s.loss,'W')}</span>
+      <span class="effpow">${si(s.Pout,'W')}</span>
+    </div>`;});
+  h+=`<div class="efftotal"><span>Total system η</span><span></span><span></span><span class="effeta" style="color:${eta_total>0.7?'var(--ok)':eta_total>0.5?'var(--volt)':'var(--warn)'}">${(eta_total*100).toFixed(1)}%</span></div>`;
+  h+='</div>';
+  d.innerHTML=h;
+}
+
+/* ============================ MATH REFERENCE ============================ */
+function sec(title,content){
+  const id='ms'+Math.random().toString(36).slice(2);
+  return `<div class="msec">
+    <div class="msec-hd" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('show')">${title}</div>
+    <div class="msec-body">${content}</div>
+  </div>`;}
+function form(sym,sub,res){return `<div class="mform"><div class="sym">${sym}</div><div class="sub">↳ ${sub}</div><div class="res">= ${res}</div></div>`;}
+function why(text){const id='mw'+Math.random().toString(36).slice(2);
+  return `<span class="mwhytog" onclick="var w=this.nextElementSibling;w.classList.toggle('show');this.textContent=w.classList.contains('show')?'▲ why':'▼ why'">▼ why</span><div class="mwhy">${text}</div>`;}
+function note(t){return `<div class="mnote">${t}</div>`;}
+
+function renderMath(){
+  const panel=$('#mathPanel');
+  const body=$('#mathBody');
+  if(!panel.classList.contains('open'))return;
+  if(!SIM){body.innerHTML='<div class="mnosim">Run a simulation first to see substituted values.</div>';return;}
+
+  const d=SIM.diag,src=d.source,ld=d.load,cab=src.cable;
+  const convs=SIM.topo.converters;
+  const L=M.load,fs=SIM.fs;
+  const Pavg_acoustic=loadPavgFromEntry(L);
+  const CF_lin=crestLinear(L.crestDB);
+  const N=SIM.N,dt=SIM.dt;
+
+  let h='';
+
+  // ── SIGNAL & LOAD ──────────────────────────────────────────────────────
+  h+='<h2>1 · Signal &amp; load model</h2>';
+
+  h+=sec('Crest factor (power ratio)',`
+    ${form(
+      'CF<sub>power</sub> = 10<sup>CF<sub>dB</sub>/10</sup>',
+      `= 10<sup>${L.crestDB}/10</sup>`,
+      `${CF_lin.toFixed(3)}×`
+    )}
+    ${why(`<b>Crest factor</b> in decibels expresses the ratio of peak to RMS amplitude. Since power ∝ V², the power ratio is the square of the amplitude ratio: 10<sup>CF<sub>dB</sub>/20</sup> squared = 10<sup>CF<sub>dB</sub>/10</sup>. This means ${L.crestDB} dB → peak power is exactly ${CF_lin.toFixed(1)}× the average.`)}
+  `);
+
+  const Ppeak_acoustic=Pavg_acoustic*CF_lin;
+  h+=sec('Peak &amp; average acoustic power',`
+    ${form(
+      'P<sub>peak</sub> = P<sub>avg</sub> × CF<sub>power</sub>',
+      `= ${si(Pavg_acoustic,'W')} × ${CF_lin.toFixed(2)}`,
+      `${si(Ppeak_acoustic,'W')}`
+    )}
+    ${note(`Stored as: ${L.powerMode==='peak'?'you entered '+si(L.Pavg,'W')+' peak, converted to '+si(Pavg_acoustic,'W')+' avg internally':'you entered '+si(Pavg_acoustic,'W')+' avg directly'}`)}
+    ${why(`The simulator always works in <b>average power</b> internally. The signal waveform is RMS-normalised so its RMS = 1. Then P(t) = P<sub>avg</sub> × v(t)², giving an average of exactly P<sub>avg</sub> and a peak of exactly P<sub>avg</sub> × CF<sub>power</sub>.`)}
+  `);
+
+  const chans=M.load.channels;
+  h+=sec('Amplifier electrical draw (per sample)',`
+    ${form(
+      'P<sub>amp,elec</sub>(t) = P<sub>acoustic</sub>(t) / η<sub>amp</sub>',
+      `e.g. peak: ${si(ld.PloadPk,'W')} / ${ld.eta.toFixed(2)}`,
+      `${si(ld.PampPk,'W')} peak`
+    )}
+    ${note(`η<sub>amp</sub> = ${(ld.eta*100).toFixed(0)}% · avg draw = ${si(ld.PampAvg,'W')} · channels = ${chans} (${L.mode})`)}
+    ${why(`The amplifier is modelled purely by its <b>drain efficiency</b>: electrical power in = acoustic power out ÷ η. At every sample the simulator divides the instantaneous acoustic demand by η to get the current drawn from the rail. Switching losses, quiescent current, and class-D dead-time effects are all folded into the single η value.`)}
+  `);
+
+  const vpk_sig=Math.sqrt(Pavg_acoustic*L.R)*Math.sqrt(CF_lin);
+  h+=sec('Speaker voltage swing',`
+    ${form(
+      'V<sub>pk</sub> = √(P<sub>peak</sub> × R<sub>load</sub>)',
+      `= √(${si(Ppeak_acoustic,'W')} × ${L.R}Ω)`,
+      `${si(vpk_sig,'V')}`
+    )}
+    ${note(`Clipping check: V<sub>pk</sub> ${vpk_sig>ld.railVmin?'> (⚠)':'≤'} rail min ${si(ld.railVmin,'V')}`)}
+    ${why(`For a resistive load R, peak power P = V²/R, so V<sub>pk</sub> = √(P × R). The simulator compares this against the minimum rail voltage reached during the transient to flag output clipping.`)}
+  `);
+
+  // ── CABLE ──────────────────────────────────────────────────────────────
+  if(cab.R>0){
+    h+='<h2>2 · Ethernet cable model</h2>';
+    const g=CABLE_GAUGES[M.cable.gauge];
+    if(g&&g.Rpml){
+      h+=sec('Loop resistance',`
+        ${form(
+          'R<sub>cable</sub> = ρ<sub>loop</sub> × L / N<sub>pairs</sub>',
+          `= ${g.Rpml} Ω/m × ${M.cable.length}m / ${M.cable.pairs}`,
+          `${cab.R.toFixed(4)} Ω`
+        )}
+        ${note(`${g.name} · ρ<sub>loop</sub> = ${g.Rpml} Ω/m (two conductors, per pair)`)}
+        ${why(`<b>Loop resistance</b> is the total DC resistance around the outbound + return conductor path for one pair. 802.3bt puts all pairs in parallel, so N parallel pairs halve/quarter the resistance. The IEC 60228 Class B conductor resistance for 24 AWG is ≈ 93.8 mΩ/m per conductor, so a loop (two conductors) is 187.6 mΩ/m, here divided by ${M.cable.pairs} parallel pairs.`)}
+      `);
+    }
+    h+=sec('Cable voltage drop &amp; PD voltage',`
+      ${form(
+        'V<sub>drop</sub>(t) = I<sub>src</sub>(t) × R<sub>cable</sub>',
+        `peak: ${si(src.Imax,'A')} × ${cab.R.toFixed(3)} Ω`,
+        `${si(cab.Vdrop_pk,'V')} peak · ${si(cab.Vdrop_avg,'V')} avg`
+      )}
+      ${form(
+        'V<sub>PD</sub>(t) = V<sub>PSE</sub> − V<sub>drop</sub>(t)',
+        `= ${M.source.V}V − ${si(cab.Vdrop_pk,'V')}`,
+        `min ${si(cab.Vpd_min,'V')} · max ${si(cab.Vpd_max,'V')}`
+      )}
+      ${note(`802.3bt PD minimum: 41.1 V ${cab.Vpd_min<41.1?'⚠ VIOLATED':'✓ OK'}`)}
+      ${why(`The cable acts as a series resistor. At peak current draw the voltage at the powered device (PD) sags by I × R<sub>cable</sub>. This is computed at every sample so the simulation captures the dynamic sag during audio peaks, not just the DC worst case.`)}
+    `);
+    h+=sec('Cable power dissipation',`
+      ${form(
+        'P<sub>cable</sub>(t) = I<sub>src</sub>(t)² × R<sub>cable</sub>  =  V<sub>drop</sub>(t) × I<sub>src</sub>(t)',
+        `avg: ${si(src.Imax,'A')}² × ${cab.R.toFixed(3)} Ω (peak)`,
+        `${si(cab.Pdiss_avg,'W')} avg · ${si(cab.Pdiss_pk,'W')} peak`
+      )}
+      ${why(`Ohmic (I²R) dissipation in the cable conductor. This power comes directly out of the PoE budget — it never reaches the powered device. The average value appears in the system efficiency waterfall.`)}
+    `);
+  }
+
+  // ── CONVERTERS ──────────────────────────────────────────────────────────
+  h+='<h2>3 · Converter model</h2>';
+  convs.forEach((cv,ci)=>{
+    const it=M.items.filter(x=>x.type==='converter')[ci];
+    if(!it)return;
+    const eff=it.eff;
+    const modeLabel={cv:'CV',cc:'CC',cp:'CP',cvcp:'CV+CP'}[it.mode]||it.mode;
+    const hasCP=it.mode==='cp'||it.mode==='cvcp';
+    h+=`<h2 style="font-size:11px;margin-top:16px">Converter ${ci+1} — ${it.topo.toUpperCase()} ${modeLabel} · ${si(it.Vout,'V')} out</h2>`;
+
+    if(it.loopBW){
+      const tau=1/(2*Math.PI*it.loopBW);
+      const alpha=dt/(tau+dt);
+      h+=sec('Loop bandwidth filter (1st-order IIR)',`
+        ${form(
+          'τ = 1 / (2π · f<sub>BW</sub>)',
+          `= 1 / (2π × ${it.loopBW} Hz)`,
+          `${si(tau,'s')}`
+        )}
+        ${form(
+          'α = Δt / (τ + Δt)',
+          `= ${si(dt,'s')} / (${si(tau,'s')} + ${si(dt,'s')})`,
+          `${alpha.toFixed(6)}`
+        )}
+        ${form(
+          'I<sub>out</sub>[n] = I<sub>out</sub>[n−1] + α × (I<sub>des</sub>[n] − I<sub>out</sub>[n−1])',
+          `α = ${alpha.toFixed(4)} (one-pole IIR, bilinear discretisation)`,
+          `converges to I<sub>des</sub> with τ = ${si(tau,'s')}`
+        )}
+        ${why(`A real converter's control loop has a finite bandwidth: it cannot respond instantly to load transients faster than ≈1/(2π·f<sub>BW</sub>). This is modelled as a <b>first-order low-pass filter</b> on the demanded output current. The discrete-time coefficient α = Δt/(τ+Δt) is the bilinear approximation to e<sup>−Δt/τ</sup> for small Δt/τ. Frequencies above f<sub>BW</sub> are attenuated — those transients must be supplied by the buffer capacitor instead.`)}
+      `);
+    }
+
+    if(it.effCurve&&it.effCurve.length>=2){
+      const pts=it.effCurve;
+      h+=sec('Nonlinear efficiency (Catmull-Rom spline)',`
+        <div class="mform"><div class="sym">η(P<sub>out</sub>) = CatmullRom({(p<sub>i</sub>, η<sub>i</sub>)}, P<sub>out</sub>/P<sub>rated</sub>)</div>
+        <div class="sub">Control points: ${pts.map(p=>`(${(p.p*100).toFixed(0)}%, ${(p.e*100).toFixed(1)}%)`).join(' · ')}</div>
+        <div class="res">Sampled at each timestep's actual P<sub>out</sub></div></div>
+        ${why(`Converter efficiency is not constant — it peaks near 50–80% load. <b>Switching losses</b> (gate charge, core loss) are roughly constant per cycle, dominating at light load. <b>Conduction losses</b> (I²·R<sub>ds,on</sub> for FETs, I²·DCR for inductors) grow with current², dominating at heavy load. The Catmull-Rom spline gives a smooth curve through your measured datasheet points without oscillation.`)}
+      `);
+    } else {
+      h+=sec('Flat efficiency model',`
+        ${form('η = constant','user-entered flat value',`${(eff*100).toFixed(1)}%`)}
+        ${note('Switch to "Curve (datasheet)" in the converter drawer to model load-dependent efficiency.')}
+      `);
+    }
+
+    h+=sec('Power balance',`
+      ${form(
+        'P<sub>in</sub> = V<sub>out</sub> × I<sub>out</sub> / η',
+        `= ${it.Vout}V × I<sub>out</sub>(t) / ${eff}`,
+        `scales with load`
+      )}
+      ${form(
+        'I<sub>in</sub> = P<sub>in</sub> / V<sub>in</sub>',
+        `P<sub>in</sub> / V<sub>in</sub>(t)`,
+        `reflects upstream demand`
+      )}
+      ${why(`Power conservation: P<sub>out</sub> = η × P<sub>in</sub>, so P<sub>in</sub> = P<sub>out</sub>/η. The input current I<sub>in</sub> = P<sub>in</sub>/V<sub>in</sub> is what flows in the upstream rail, propagating demand back toward the source. This is evaluated instantaneously at every sample — the converter is a <b>dynamic current source</b>, not a static resistor.`)}
+    `);
+
+    if((it.Zout||0)>0){
+      const Iout_pk=d.converters[ci]?d.converters[ci].IoutPk:it.Ilimit;
+      const droop_pk=(it.Zout||0)*Iout_pk;
+      h+=sec('Output impedance droop',`
+        ${form(
+          'V<sub>out</sub>(t) = V<sub>set</sub> − Z<sub>out</sub> × I<sub>out</sub>(t)',
+          `= ${it.Vout}V − ${((it.Zout||0)*1000).toFixed(0)}mΩ × I<sub>out</sub>(t)`,
+          `droop at peak I: ${si(droop_pk,'V')} → V<sub>out,min</sub> ≈ ${si(it.Vout-droop_pk,'V')}`
+        )}
+        ${why(`<b>Closed-loop output impedance</b> (Z<sub>out</sub>) is the slope of the V–I droop curve: how many millivolts the output falls per amp of additional load. Even a tightly regulated converter has a non-zero Z<sub>out</sub> set by the loop gain and output filter. At DC, a synchronous buck with high loop gain might achieve 5–20 mΩ; at frequencies above the loop bandwidth, Z<sub>out</sub> rises toward the open-loop output filter impedance. The model applies the DC droop at every timestep, which correctly captures load-regulation sag during audio peaks. The drooped voltage feeds back into the next sample's demand calculation, capturing the interaction between rail sag and converter current.`)}
+      `);
+    }
+
+    if(hasCP){
+      const Pcap_eff=it.plimitRef==='in'?it.Plimit*eff:it.Plimit;
+      const Imax_cp=Pcap_eff/it.Vout;
+      h+=sec(`Constant-power limit (${it.plimitRef}-referred)`,`
+        ${it.plimitRef==='in'?form(
+          'I<sub>max,out</sub> = P<sub>limit,in</sub> × η / V<sub>out</sub>',
+          `= ${it.Plimit}W × ${eff} / ${it.Vout}V`,
+          `${si(Imax_cp,'A')}`
+        ):form(
+          'I<sub>max,out</sub> = P<sub>limit,out</sub> / V<sub>out</sub>',
+          `= ${it.Plimit}W / ${it.Vout}V`,
+          `${si(Imax_cp,'A')}`
+        )}
+        ${note(`Applied as a current ceiling: I<sub>out</sub> = min(I<sub>desired</sub>, I<sub>max,out</sub>)`)}
+        ${why(`The CP loop prevents the converter from drawing more than P<sub>limit</sub> from its input (input-referred) or delivering more than P<sub>limit</sub> at its output (output-referred). <b>Input-referred</b> is the right choice for PoE compliance: it caps what the converter demands from the PoE budget regardless of output voltage. The limit is converted to an output current ceiling because that is the natural control variable of the output-stage current loop.`)}
+      `);
+    }
+  });
+
+  // ── CAPACITOR MODEL ────────────────────────────────────────────────────
+  if(d.rails.length>0){
+    h+='<h2>4 · Capacitor bank model</h2>';
+    d.rails.forEach(cap=>{
+      const it=M.items.find(x=>x.id===cap.id);if(!it)return;
+      const Cbank=cap.Cbank;
+      h+=`<h2 style="font-size:11px;margin-top:16px">${cap.label||'Cap bank'} — rail ${cap.railIdx} · ${si(Cbank,'F')} bank</h2>`;
+
+      h+=sec('Bank capacitance',`
+        ${form(
+          'C<sub>bank</sub> = C<sub>each</sub> × N<sub>p</sub> / N<sub>s</sub>',
+          `= ${si(it.Ceach,'F')} × ${it.Np} / ${it.Ns}`,
+          `${si(Cbank,'F')}`
+        )}
+        ${why(`Capacitors in parallel sum their capacitances (×N<sub>p</sub>); capacitors in series divide (÷N<sub>s</sub>). Series connection raises the voltage rating at the cost of lower capacitance.`)}
+      `);
+
+      h+=sec('Rail voltage integration (ODE)',`
+        <div class="mform">
+          <div class="sym">C · dV/dt = I<sub>in</sub>(t) − I<sub>load</sub>(t)</div>
+          <div class="sub">Discretised: V[n] = V[n−1] + (I<sub>in</sub>[n] − I<sub>load</sub>[n]) / C<sub>bank</sub> × Δt</div>
+          <div class="res">Δt = ${si(SIM.dt,'s')} · observed: V<sub>min</sub> = ${si(cap.Vmin,'V')} · V<sub>peak</sub> = ${si(cap.Vp,'V')}</div>
+        </div>
+        ${why(`This is the fundamental <b>capacitor ODE</b>: charge = capacitance × voltage, so current = C × dV/dt. When I<sub>in</sub> > I<sub>load</sub> the rail charges; when I<sub>in</sub> < I<sub>load</sub> (during a crest-factor peak) it discharges. The Euler forward integration is stable here because the time constant (C × Z<sub>load</sub>) is much larger than Δt.`)}
+      `);
+
+      h+=sec('Ripple current (RMS, per capacitor)',`
+        ${form(
+          'I<sub>rip,env</sub> = RMS(I<sub>cap</sub>(t)) / N<sub>p</sub>',
+          `= ${si(cap.IripEnv*cap.Np,'A')} rms / ${it.Np}`,
+          `${si(cap.IripEnv,'A')} rms per cap`
+        )}
+        ${form(
+          'I<sub>rip,total</sub> = √(I<sub>rip,env</sub>² + I<sub>sw</sub>²)',
+          `= √(${cap.IripEnv.toFixed(4)}² + ${it.swRipple||0}²)`,
+          `${si(cap.Irip,'A')} rms`
+        )}
+        ${note(`Rating: ${cap.IripRating} A · load: ${(cap.iload*100).toFixed(1)}% ${cap.iViol?'⚠ EXCEEDED':'✓ OK'}`)}
+        ${why(`Capacitor datasheets rate ripple current as the <b>RMS current</b> the capacitor can handle thermally. The <b>envelope ripple</b> comes from buffering audio peaks; the <b>switching ripple</b> is the converter's fixed switching-frequency component. They are added in quadrature (RMS sum) because they are uncorrelated at different frequencies.`)}
+      `);
+
+      h+=sec('Per-capacitor dissipation (ESR heating)',`
+        ${form(
+          'P<sub>diss</sub> = I<sub>rip,total</sub>² × ESR<sub>each</sub>',
+          `= ${cap.Irip.toFixed(4)}² × ${it.ESReach} Ω`,
+          `${si(cap.Pdiss,'W')} per cap`
+        )}
+        ${why(`All ripple current flows through the capacitor's <b>Equivalent Series Resistance</b> (ESR), dissipating I²R heat. Exceeding the rated ripple current means exceeding the thermal design point — the cap will run hot and degrade. The simulator also computes the ESR implied by tan δ for comparison.`)}
+      `);
+
+      const f0=it.tanFreq||120;
+      const ESRtan=it.tanDelta/(2*Math.PI*f0*Math.max(1e-9,it.Ceach));
+      h+=sec('tan δ → implied ESR',`
+        ${form(
+          'ESR<sub>tanδ</sub> = tan δ / (2π · f · C<sub>each</sub>)',
+          `= ${it.tanDelta} / (2π × ${f0}Hz × ${si(it.Ceach,'F')})`,
+          `${si(ESRtan,'Ω')} (at ${f0}Hz)`
+        )}
+        ${note(`Your entered ESR: ${si(it.ESReach,'Ω')} · tan δ-implied: ${si(ESRtan,'Ω')} · ${it.ESReach>ESRtan*1.5?'your ESR is notably higher than tan δ implies':'consistent'}`)}
+        ${why(`<b>tan δ</b> (dissipation factor) is the ratio of resistive to reactive power in the capacitor at a given frequency: tan δ = ESR × ω × C. Rearranging gives ESR = tan δ / (ω C). This is the ESR at the measurement frequency (typically 100–120 Hz for electrolytics); at higher frequencies ESR usually rises. The comparison helps catch data-entry mismatches.`)}
+      `);
+
+      h+=sec('Energy delivered (buffering)',`
+        ${form(
+          'E<sub>buf</sub> = ½ · C<sub>bank</sub> · (V<sub>peak</sub>² − V<sub>min</sub>²)',
+          `= ½ × ${si(Cbank,'F')} × (${cap.Vp.toFixed(2)}² − ${cap.Vmin.toFixed(2)}²)`,
+          `${si(cap.Ebuf,'J')}`
+        )}
+        ${why(`The energy stored in a capacitor is ½CV². When the rail sags from V<sub>peak</sub> to V<sub>min</sub>, the difference in stored energy (½C·ΔV²) was delivered to the load. This is the energy that let the output exceed what the converter could supply alone during a crest-factor peak.`)}
+      `);
+    });
+  }
+
+  // ── SYSTEM EFFICIENCY ──────────────────────────────────────────────────
+  h+='<h2>5 · System efficiency waterfall</h2>';
+  let Pavail=M.source.Pmax;
+  h+=sec('Stage-by-stage available power',`
+    <div class="mform">
+      <div class="sym">P<sub>avail,n</sub> = P<sub>avail,n−1</sub> × η<sub>n</sub></div>
+      <div class="sub">Starting from: P<sub>PoE budget</sub> = ${si(M.source.Pmax,'W')}</div>
+      <div class="res">
+  `);
+  let rows='';
+  rows+=`<div>PoE budget: <b>${si(Pavail,'W')}</b></div>`;
+  if(cab.R>0){const loss=cab.Pdiss_avg;const eta_c=1-loss/Math.max(1,src.Pavg);Pavail-=loss;rows+=`<div>− Cable loss ${si(loss,'W')} → <b>${si(Pavail,'W')}</b> (η=${(eta_c*100).toFixed(1)}%)</div>`;}
+  convs.forEach((cv,i)=>{const eta=Math.min(0.999,Math.max(0.05,(M.items.filter(x=>x.type==='converter')[i]||{eff:cv.eff}).eff));const loss=Pavail*(1-eta);Pavail*=eta;rows+=`<div>× Converter ${i+1} η ${(eta*100).toFixed(1)}% → <b>${si(Pavail,'W')}</b> (loss ${si(loss,'W')})</div>`;});
+  const eta_amp=ld.eta;const loss_amp=Pavail*(1-eta_amp);Pavail*=eta_amp;
+  rows+=`<div>× Amplifier η ${(eta_amp*100).toFixed(0)}% → <b>${si(Pavail,'W')}</b> acoustic (loss ${si(loss_amp,'W')})</div>`;
+  const etaTot=M.source.Pmax>0?Pavail/M.source.Pmax:0;
+  rows+=`<div style="margin-top:6px;color:var(--ok)"><b>Total system η = ${si(Pavail,'W')} / ${si(M.source.Pmax,'W')} = ${(etaTot*100).toFixed(1)}%</b></div>`;
+  h+=rows+'</div></div>';
+  h+=why(`Each stage multiplies the available power by its efficiency. The <b>waterfall</b> shows where the PoE budget is consumed: cable ohmic loss is subtracted linearly; converter and amplifier losses are fractional (percentage of throughput). The stage with the smallest η or tightest CP limit determines the bottleneck.`);
+  h+='</div>'; // close sec-body opened inline above
+
+  // ── SIMULATION METHOD ──────────────────────────────────────────────────
+  h+='<h2>6 · Simulation method</h2>';
+  h+=sec('Time-domain ODE solver',`
+    <div class="mform">
+      <div class="sym">Forward Euler integration at sample rate f<sub>s</sub></div>
+      <div class="sub">Δt = 1/f<sub>s</sub> = 1/${fs.toLocaleString()} = ${si(dt,'s')} · N = ${N.toLocaleString()} samples · window = ${M.sim.T}s</div>
+      <div class="res">Stability: Δt ≪ min rail τ = C<sub>min</sub>/G<sub>load,max</sub></div>
+    </div>
+    ${why(`The simulator solves the circuit ODEs at audio sample rate using <b>forward Euler</b>: x[n] = x[n−1] + f(x[n−1])·Δt. At 48 kHz the timestep (20.8 µs) is much smaller than the dominant rail time constants (typically 1–100 ms for the buffer caps), so the integration is stable. Running at audio rate also means the signal model is exact — every sample of the audio waveform is resolved without approximation.`)}
+  `);
+
+  h+=sec('Signal generation',`
+    <div class="mform">
+      <div class="sym">v(t) normalised so RMS(v) = 1 → P(t) = P<sub>avg</sub> · v(t)²</div>
+      <div class="sub">EIA-426-B: pink noise → HP biquad @120Hz → LP biquad @6.3kHz → tanh crest shaper targeting ${L.crestDB}dB</div>
+      <div class="res">Actual CF confirmed by bisection on tanh gain to ±0.01dB</div>
+    </div>
+    ${why(`The <b>EIA-426-B</b> programme noise is a pink-noise spectrum shaped to approximate typical music energy distribution (reduced lows and highs). The crest factor is controlled by a <b>tanh soft-clipper</b>: increasing the tanh gain g compresses peaks, reducing crest factor. A bisection search finds the g that hits the target CF within 0.01 dB tolerance.`)}
+  `);
+
+  body.innerHTML=h;
+}
+
+function openMath(){
+  $('#mathPanel').classList.add('open');
+  $('#mathBtn').classList.add('on');
+  renderMath();
+}
+function closeMath(){
+  $('#mathPanel').classList.remove('open');
+  $('#mathBtn').classList.remove('on');
+}
+$('#mathBtn').onclick=()=>$('#mathPanel').classList.contains('open')?closeMath():openMath();
+$('#mathClose').onclick=closeMath;
+
+
+document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{
+  const t=b.dataset.add;
+  if(t==='converter')M.items.push({id:nid(),type:'converter',topo:'buck',mode:'cvcp',Vout:48,Plimit:60,plimitRef:'in',Ilimit:5,eff:0.92,Vmin:36,Vmax:54,loopBW:null,effCurve:null,Zout:0});
+  else M.items.push({id:nid(),type:'cap',label:'Cap bank',Ceach:0.001,Np:2,Ns:1,Vrating:63,ESReach:0.05,tanDelta:0.1,tanFreq:120,Irip:1.5,swRipple:0.2});
+  renderBus();schedule();
+});
+$('#drawerClose').onclick=closeDrawer;
+
+/* ============================ FILE I/O ============================ */
+const FILE_VERSION=1;
+let currentFilename=null;
+
+function setFilename(name){
+  currentFilename=name;
+  $('#fname').textContent=name||'unsaved';
+  $('#fname').title=name||'';
+}
+
+function modelToJSON(){
+  // Deep-clone model, stripping the unserializable audio Float64Array.
+  const snap=JSON.parse(JSON.stringify({
+    _v:FILE_VERSION,
+    _app:'reservoir',
+    _saved:new Date().toISOString(),
+    seed:M.seed,
+    sim:M.sim,
+    sources:M.sources,
+    items:M.items,
+    load:{...M.load,audio:null}
+  }));
+  return JSON.stringify(snap,null,2);
+}
+
+function suggestFilename(){
+  const label=(M.source.label||'design').toLowerCase().replace(/[^a-z0-9]+/g,'-');
+  const d=new Date();const ts=d.getFullYear()+''+(d.getMonth()+1).toString().padStart(2,'0')+d.getDate().toString().padStart(2,'0');
+  return label+'-'+ts+'.reservoir';
+}
+
+function saveFile(){
+  const json=modelToJSON();
+  const blob=new Blob([json],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=currentFilename||suggestFilename();
+  document.body.appendChild(a);a.click();
+  document.body.removeChild(a);setTimeout(()=>URL.revokeObjectURL(url),2000);
+  setFilename(a.download);
+}
+
+function loadFromJSON(text,filename){
+  let parsed;
+  try{parsed=JSON.parse(text);}
+  catch(e){alert('Could not parse file — not valid JSON.\n'+e.message);return;}
+  if(parsed._app&&parsed._app!=='reservoir'){
+    if(!confirm('This file was not saved by Reservoir. Load anyway?'))return;}
+  const v=parsed._v||0;
+  if(v>FILE_VERSION){alert('This file was saved by a newer version of Reservoir (v'+v+'). Some settings may not load correctly.');}
+  // Merge into M with safe fallbacks for missing fields
+  try{
+    if(parsed.seed!=null)M.seed=parsed.seed;
+    if(parsed.sim)Object.assign(M.sim,parsed.sim);
+    // Support both new sources[] array and legacy source/cable fields
+    if(Array.isArray(parsed.sources)&&parsed.sources.length>0){
+      M.sources=parsed.sources.map(s=>({
+        id:s.id||nid(),type:s.type||'poe',label:s.label||'Source',
+        V:s.V||52,Imax:s.Imax||1.7,Pmax:s.Pmax||91,
+        ac:s.ac||{Vrms:230,freq:50,Imax:16,PF:0.95},
+        cable:s.cable||{enabled:false,length:50,gauge:'cat5e',pairs:4,Rmanual:null}
+      }));
+    } else if(parsed.source){
+      // Legacy single-source file
+      const s=parsed.source,c=parsed.cable||{enabled:false,length:50,gauge:'cat5e',pairs:4,Rmanual:null};
+      M.sources=[{id:'s1',type:'poe',label:s.label||'Source',V:s.V||52,Imax:s.Imax||1.7,Pmax:s.Pmax||91,
+        ac:{Vrms:230,freq:50,Imax:16,PF:0.95},cable:c}];
+    }
+    if(Array.isArray(parsed.items)){
+      M.items=parsed.items.map(it=>({...it,id:it.id||nid()}));
+      uid=Math.max(uid,...M.items.map(it=>parseInt(it.id.slice(1)||0,10)+1));}
+    if(parsed.load){
+      const{audio,...rest}=parsed.load; // drop audio — user must re-upload
+      Object.assign(M.load,rest);M.load.audio=null;}
+  }catch(e){alert('Error applying file: '+e.message);return;}
+  // Sync UI inputs from M
+  $('#simT').value=M.sim.T;$('#simFs').value=M.sim.fs/1000;$('#simSeed').value=M.seed;
+  closeDrawer();
+  renderSource();renderLoad();renderBus();
+  const hadAudio=parsed.load&&parsed.load.audio!==null&&parsed.load.audio!==undefined;
+  if(hadAudio)setFilename((filename||'loaded')+'  ⚠ re-upload audio');
+  else setFilename(filename||'loaded');
+  run();
+}
+
+function saveFileAs(){
+  const suggested=currentFilename||suggestFilename();
+  const name=prompt('Save as:',suggested);
+  if(!name)return; // cancelled
+  const finalName=name.endsWith('.reservoir')||name.endsWith('.json')?name:name+'.reservoir';
+  const json=modelToJSON();
+  const blob=new Blob([json],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=finalName;
+  document.body.appendChild(a);a.click();
+  document.body.removeChild(a);setTimeout(()=>URL.revokeObjectURL(url),2000);
+  setFilename(finalName);
+}
+
+$('#saveBtn').onclick=saveFile;
+$('#saveAsBtn').onclick=saveFileAs;
+$('#openFile').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>loadFromJSON(ev.target.result,f.name);
+  r.readAsText(f);
+  e.target.value=''; // allow re-opening same file
+};
+
+
+let timer=null;
+function schedule(){clearTimeout(timer);timer=setTimeout(run,140);}
+function run(){
+  const fsIn=Math.max(2,Math.min(96,+$('#simFs').value||48))*1000;
+  let T=Math.max(0.02,Math.min(20,+$('#simT').value||1));
+  const Nmax=1500000; if(T*fsIn>Nmax){T=Nmax/fsIn;$('#simT').value=T.toFixed(3);} // keep memory/compute bounded
+  M.sim.fs=fsIn;M.sim.T=T;M.seed=+$('#simSeed').value||1;
+  try{SIM=simulate(M);}catch(e){console.error(e);return;}
+  if(probeRail>=SIM.topo.rails.length)probeRail=SIM.topo.rails.length-1;
+  if(M.sim.T!==lastT){scopeView.t0=0;scopeView.t1=M.sim.T;lastT=M.sim.T;} // re-fit when transient time changes
+  renderVerdict();renderFlow();buildProbeChips();drawScope();renderDiag();markViolations();highlightProbe();renderMath();
+}
+function zoomBy(f,center){const T=M.sim.T;let{t0,t1}=scopeView;const span=t1-t0;const ns=Math.min(T,Math.max(T*2e-4,span*f));
+  const c=center==null?(t0+t1)/2:center;const frac=(c-t0)/span;let n0=c-frac*ns,n1=n0+ns;
+  if(n0<0){n0=0;n1=ns;}if(n1>T){n1=T;n0=T-ns;}scopeView.t0=Math.max(0,n0);scopeView.t1=Math.min(T,n1);drawScope();}
+function doPan(e){const cv=$('#scope'),r=cv.getBoundingClientRect(),g=scopeGeom;if(!g||!panStart)return;const mx=e.clientX-r.left;
+  const dxT=(mx-panStart.x)/g.pw*(panStart.t1-panStart.t0);const span=panStart.t1-panStart.t0;let n0=panStart.t0-dxT,n1=panStart.t1-dxT;const T=M.sim.T;
+  if(n0<0){n0=0;n1=span;}if(n1>T){n1=T;n0=T-span;}scopeView.t0=Math.max(0,n0);scopeView.t1=Math.min(T,n1);drawScope();}
+function dragCursor(e){const cv=$('#scope'),r=cv.getBoundingClientRect(),g=scopeGeom;if(!g)return;const mx=e.clientX-r.left;
+  let t=g.t0+(mx-g.padL)/g.pw*(g.t1-g.t0);t=Math.max(g.t0,Math.min(g.t1,t));cursors[cursors.drag]=t;drawScope();}
+function bindScope(){
+  const cv=$('#scope');
+  $('#zoomIn').onclick=()=>zoomBy(1/1.6);
+  $('#zoomOut').onclick=()=>zoomBy(1.6);
+  $('#zoomFit').onclick=()=>{scopeView.t0=0;scopeView.t1=M.sim.T;drawScope();};
+  $('#curToggle').onclick=()=>{cursors.on=!cursors.on;$('#curToggle').classList.toggle('on',cursors.on);
+    if(cursors.on){const s=scopeView;cursors.a=s.t0+(s.t1-s.t0)*0.33;cursors.b=s.t0+(s.t1-s.t0)*0.66;}drawScope();};
+  cv.addEventListener('wheel',e=>{if(!SIM||!scopeGeom)return;e.preventDefault();const g=scopeGeom;
+    const r=cv.getBoundingClientRect();const tm=g.t0+(e.clientX-r.left-g.padL)/g.pw*(g.t1-g.t0);
+    zoomBy(e.deltaY>0?1.25:0.8,tm);},{passive:false});
+  cv.addEventListener('mousedown',e=>{if(!SIM||!scopeGeom)return;const g=scopeGeom,r=cv.getBoundingClientRect(),mx=e.clientX-r.left;
+    const tx=t=>g.padL+g.pw*(t-g.t0)/(g.t1-g.t0);
+    if(cursors.on){const dA=Math.abs(tx(cursors.a)-mx),dB=Math.abs(tx(cursors.b)-mx);
+      if(Math.min(dA,dB)<14){cursors.drag=dA<=dB?'a':'b';dragCursor(e);return;}}
+    cursors.drag='pan';panStart={x:mx,t0:g.t0,t1:g.t1};});
+  window.addEventListener('mousemove',e=>{if(!cursors.drag)return;cursors.drag==='pan'?doPan(e):dragCursor(e);});
+  window.addEventListener('mouseup',()=>{cursors.drag=null;});
+}
+$('#runBtn').onclick=run;
+['#simT','#simFs','#simSeed'].forEach(s=>$(s).oninput=schedule);
+window.addEventListener('resize',()=>{if(SIM)drawScope();});
+
+/* ============================ INIT ============================ */
+bindScope();renderSource();renderLoad();renderBus();run();
+</script>
+</body>
+</html>
