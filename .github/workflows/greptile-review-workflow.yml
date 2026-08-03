@@ -2,16 +2,16 @@ name: Post-Review Auto-Merge and Notify
 
 # This workflow triggers AFTER Greptile finishes its review.
 # Greptile handles the actual code review via its GitHub App.
-# This workflow handles: auto-merge decision + email notification.
+# This workflow handles: auto-merge decision + email notification + branch cleanup.
+#
+# Architecture: Each app gets its own branch (review/app-name → main).
+# Greptile only sees files in that app's directory since the diff
+# against main contains nothing else.
 
 on:
   # Fires when Greptile (or any reviewer) submits a review
   pull_request_review:
     types: [submitted]
-
-  # Fires when Greptile's status check completes
-  check_suite:
-    types: [completed]
 
 permissions:
   contents: write
@@ -23,9 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     # Only run when the review is from Greptile
     if: >
-      (github.event_name == 'pull_request_review' &&
-       contains(github.event.review.user.login, 'greptile')) ||
-      github.event_name == 'check_suite'
+      github.event_name == 'pull_request_review' &&
+      contains(github.event.review.user.login, 'greptile')
 
     steps:
       - name: Checkout
@@ -36,13 +35,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # For pull_request_review events, PR number is directly available
-          if [ "${{ github.event_name }}" = "pull_request_review" ]; then
-            PR_NUMBER="${{ github.event.pull_request.number }}"
-          else
-            # For check_suite events, find the associated PR
-            PR_NUMBER=$(gh pr list --base main --head develop --json number --jq '.[0].number // empty')
-          fi
+          PR_NUMBER="${{ github.event.pull_request.number }}"
 
           if [ -z "$PR_NUMBER" ]; then
             echo "No PR found, exiting."
@@ -54,10 +47,11 @@ jobs:
           echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
           # Get PR details
-          PR_DATA=$(gh pr view "$PR_NUMBER" --json title,url,author,state,reviewDecision,statusCheckRollup)
+          PR_DATA=$(gh pr view "$PR_NUMBER" --json title,url,author,state,reviewDecision,headRefName)
           echo "title=$(echo "$PR_DATA" | jq -r '.title')" >> "$GITHUB_OUTPUT"
           echo "url=$(echo "$PR_DATA" | jq -r '.url')" >> "$GITHUB_OUTPUT"
           echo "author=$(echo "$PR_DATA" | jq -r '.author.login')" >> "$GITHUB_OUTPUT"
+          echo "head_branch=$(echo "$PR_DATA" | jq -r '.headRefName')" >> "$GITHUB_OUTPUT"
           echo "review_decision=$(echo "$PR_DATA" | jq -r '.reviewDecision // "PENDING"')" >> "$GITHUB_OUTPUT"
 
       - name: Collect Greptile review comments
@@ -68,7 +62,7 @@ jobs:
         run: |
           PR_NUMBER="${{ steps.pr.outputs.number }}"
 
-          # Get all review comments from Greptile
+          # Get the latest review from Greptile
           REVIEWS=$(gh api \
             "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
             --jq '[.[] | select(.user.login | contains("greptile"))] | last')
@@ -88,7 +82,7 @@ jobs:
           echo "state=$REVIEW_STATE" >> "$GITHUB_OUTPUT"
           echo "$REVIEW_BODY" > /tmp/greptile_review.txt
 
-          # Also get inline comments from Greptile
+          # Get inline comments from Greptile
           INLINE_COMMENTS=$(gh api \
             "repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments" \
             --jq '[.[] | select(.user.login | contains("greptile"))]')
@@ -96,23 +90,27 @@ jobs:
           COMMENT_COUNT=$(echo "$INLINE_COMMENTS" | jq 'length')
           echo "comment_count=$COMMENT_COUNT" >> "$GITHUB_OUTPUT"
 
-          # Count by severity (Greptile uses labels like 🔴 🟡 🟢 in comments)
-          CRITICAL_COUNT=$(echo "$INLINE_COMMENTS" | jq '[.[] | select(.body | test("🔴|CRITICAL|critical|security"))] | length')
-          HIGH_COUNT=$(echo "$INLINE_COMMENTS" | jq '[.[] | select(.body | test("🟠|HIGH|Warning"))] | length')
+          # Count by severity — Greptile uses P0 (critical), P1 (high), P2 (medium)
+          # Also match common security keywords in case Greptile uses descriptive text
+          CRITICAL_COUNT=$(echo "$INLINE_COMMENTS" | jq '[.[] | select(.body | test("\\bP0\\b|CRITICAL|critical|XSS|injection|hardcoded secret|hardcoded credential|stored XSS|code injection"))] | length')
+          HIGH_COUNT=$(echo "$INLINE_COMMENTS" | jq '[.[] | select(.body | test("\\bP1\\b|HIGH|unsafe|missing validation|missing authentication|CORS misconfiguration"))] | length')
+          MEDIUM_COUNT=$(echo "$INLINE_COMMENTS" | jq '[.[] | select(.body | test("\\bP2\\b|MEDIUM|copy-paste|duplicate|generic variable|console\\.log|commented-out"))] | length')
+
           echo "critical_count=$CRITICAL_COUNT" >> "$GITHUB_OUTPUT"
           echo "high_count=$HIGH_COUNT" >> "$GITHUB_OUTPUT"
+          echo "medium_count=$MEDIUM_COUNT" >> "$GITHUB_OUTPUT"
 
           # Build a summary of all inline comments
           echo "$INLINE_COMMENTS" | jq -r '.[] | "File: \(.path)\nLine: \(.line // "N/A")\n\(.body)\n---"' > /tmp/inline_comments.txt
 
-          # Determine our decision based on Greptile's output
+          # Determine decision based on Greptile's output
           if [ "$REVIEW_STATE" = "APPROVED" ] && [ "$CRITICAL_COUNT" -eq 0 ]; then
             echo "decision=APPROVE" >> "$GITHUB_OUTPUT"
           else
             echo "decision=DENY" >> "$GITHUB_OUTPUT"
           fi
 
-          # Calculate a health score on Greptile's 1-5 scale
+          # Calculate health score on 1-5 scale
           # 1 = critical issues, not deployable
           # 2 = significant issues, needs major work
           # 3 = functional but has quality concerns
@@ -133,7 +131,7 @@ jobs:
           fi
           echo "health_score=$SCORE" >> "$GITHUB_OUTPUT"
 
-      - name: Auto-merge if Greptile approved
+      - name: Auto-merge if approved and score meets threshold
         if: >
           steps.pr.outputs.found == 'true' &&
           steps.review.outputs.has_review == 'true' &&
@@ -146,12 +144,30 @@ jobs:
             --merge \
             --repo ${{ github.repository }}
 
+      - name: Delete feature branch after merge
+        if: >
+          steps.pr.outputs.found == 'true' &&
+          steps.review.outputs.has_review == 'true' &&
+          steps.review.outputs.decision == 'APPROVE' &&
+          steps.review.outputs.health_score >= 4
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${{ steps.pr.outputs.head_branch }}"
+          if [ -n "$BRANCH" ] && [ "$BRANCH" != "main" ]; then
+            gh api \
+              -X DELETE \
+              "repos/${{ github.repository }}/git/refs/heads/${BRANCH}" \
+              2>/dev/null || echo "Branch already deleted or does not exist"
+          fi
+
       - name: Send notification to Power Automate
         if: >
+          always() &&
           steps.pr.outputs.found == 'true' &&
           steps.review.outputs.has_review == 'true'
         run: |
-          REVIEW_BODY=$(cat /tmp/greptile_review.txt)
+          REVIEW_BODY=$(cat /tmp/greptile_review.txt 2>/dev/null || echo "No review body")
           INLINE=$(cat /tmp/inline_comments.txt 2>/dev/null || echo "No inline comments")
 
           FULL_SUMMARY=$(printf "%s\n\n--- INLINE COMMENTS ---\n\n%s" "$REVIEW_BODY" "$INLINE")
@@ -167,6 +183,7 @@ jobs:
               --arg author "${{ steps.pr.outputs.author }}" \
               --arg critical "${{ steps.review.outputs.critical_count }}" \
               --arg high "${{ steps.review.outputs.high_count }}" \
+              --arg medium "${{ steps.review.outputs.medium_count }}" \
               --arg total_comments "${{ steps.review.outputs.comment_count }}" \
               '{
                 decision: $decision,
@@ -177,5 +194,6 @@ jobs:
                 author: $author,
                 critical_issues: $critical,
                 high_issues: $high,
+                medium_issues: $medium,
                 total_comments: $total_comments
               }')"
