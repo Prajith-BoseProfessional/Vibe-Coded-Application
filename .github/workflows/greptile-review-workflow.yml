@@ -1,0 +1,198 @@
+name: Post-Review Auto-Merge and Notify
+
+# This workflow triggers AFTER Greptile finishes its review.
+# Greptile handles the actual code review via its GitHub App.
+# This workflow handles: auto-merge decision + email notification + branch cleanup.
+#
+# Architecture: Each app gets its own branch (review/app-name → main).
+# Greptile only sees files in that app's directory since the diff
+# against main contains nothing else.
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+jobs:
+  process-review:
+    runs-on: ubuntu-latest
+    # Only run when the review is from Greptile
+    if: >
+      github.event_name == 'pull_request_review' &&
+      contains(github.event.review.user.login, 'greptile')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get PR details
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No PR found, exiting."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+          # Get PR details
+          PR_DATA=$(gh pr view "$PR_NUMBER" --json title,url,author,state,reviewDecision,headRefName)
+          echo "title=$(echo "$PR_DATA" | jq -r '.title')" >> "$GITHUB_OUTPUT"
+          echo "url=$(echo "$PR_DATA" | jq -r '.url')" >> "$GITHUB_OUTPUT"
+          echo "author=$(echo "$PR_DATA" | jq -r '.author.login')" >> "$GITHUB_OUTPUT"
+          echo "head_branch=$(echo "$PR_DATA" | jq -r '.headRefName')" >> "$GITHUB_OUTPUT"
+          echo "review_decision=$(echo "$PR_DATA" | jq -r '.reviewDecision // "PENDING"')" >> "$GITHUB_OUTPUT"
+
+      - name: Collect Greptile review comments
+        if: steps.pr.outputs.found == 'true'
+        id: review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER="${{ steps.pr.outputs.number }}"
+
+          # Get the latest review from Greptile
+          REVIEWS=$(gh api \
+            "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
+            --jq '[.[] | select(.user.login | contains("greptile"))] | last')
+
+          if [ -z "$REVIEWS" ] || [ "$REVIEWS" = "null" ]; then
+            echo "No Greptile review found yet."
+            echo "has_review=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "has_review=true" >> "$GITHUB_OUTPUT"
+
+          # Extract Greptile's review state and body
+          REVIEW_STATE=$(echo "$REVIEWS" | jq -r '.state')
+          REVIEW_BODY=$(echo "$REVIEWS" | jq -r '.body // "No summary provided"')
+
+          echo "state=$REVIEW_STATE" >> "$GITHUB_OUTPUT"
+          echo "$REVIEW_BODY" > /tmp/greptile_review.txt
+
+          # Get inline comments from Greptile
+          INLINE_COMMENTS=$(gh api \
+            "repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments" \
+            --jq '[.[] | select(.user.login | contains("greptile"))]')
+
+          COMMENT_COUNT=$(echo "$INLINE_COMMENTS" | jq 'length')
+          echo "comment_count=$COMMENT_COUNT" >> "$GITHUB_OUTPUT"
+
+          # Count by severity — Greptile uses P0 (critical), P1 (high), P2 (medium)
+          # Also match common security keywords in case Greptile uses descriptive text
+          CRITICAL_COUNT=$(echo "$INLINE_COMMENTS" | jq '[.[] | select(.body | test("\\bP0\\b|CRITICAL|critical|XSS|injection|hardcoded secret|hardcoded credential|stored XSS|code injection"))] | length')
+          HIGH_COUNT=$(echo "$INLINE_COMMENTS" | jq '[.[] | select(.body | test("\\bP1\\b|HIGH|unsafe|missing validation|missing authentication|CORS misconfiguration"))] | length')
+          MEDIUM_COUNT=$(echo "$INLINE_COMMENTS" | jq '[.[] | select(.body | test("\\bP2\\b|MEDIUM|copy-paste|duplicate|generic variable|console\\.log|commented-out"))] | length')
+
+          echo "critical_count=$CRITICAL_COUNT" >> "$GITHUB_OUTPUT"
+          echo "high_count=$HIGH_COUNT" >> "$GITHUB_OUTPUT"
+          echo "medium_count=$MEDIUM_COUNT" >> "$GITHUB_OUTPUT"
+
+          # Build a summary of all inline comments
+          echo "$INLINE_COMMENTS" | jq -r '.[] | "File: \(.path)\nLine: \(.line // "N/A")\n\(.body)\n---"' > /tmp/inline_comments.txt
+
+          # Determine decision based on Greptile's output
+          if [ "$REVIEW_STATE" = "APPROVED" ] && [ "$CRITICAL_COUNT" -eq 0 ]; then
+            echo "decision=APPROVE" >> "$GITHUB_OUTPUT"
+          else
+            echo "decision=DENY" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Calculate health score on 1-5 scale
+          # 1 = critical issues, not deployable
+          # 2 = significant issues, needs major work
+          # 3 = functional but has quality concerns
+          # 4 = good quality, minor improvements only
+          # 5 = exemplary
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            SCORE=1
+          elif [ "$HIGH_COUNT" -gt 2 ]; then
+            SCORE=2
+          elif [ "$HIGH_COUNT" -gt 0 ]; then
+            SCORE=3
+          elif [ "$COMMENT_COUNT" -gt 5 ]; then
+            SCORE=3
+          elif [ "$COMMENT_COUNT" -gt 0 ]; then
+            SCORE=4
+          else
+            SCORE=5
+          fi
+          echo "health_score=$SCORE" >> "$GITHUB_OUTPUT"
+
+      - name: Auto-merge if approved and score meets threshold
+        if: >
+          steps.pr.outputs.found == 'true' &&
+          steps.review.outputs.has_review == 'true' &&
+          steps.review.outputs.decision == 'APPROVE' &&
+          steps.review.outputs.health_score >= 4
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr merge ${{ steps.pr.outputs.number }} \
+            --merge \
+            --repo ${{ github.repository }}
+
+      - name: Delete feature branch after merge
+        if: >
+          steps.pr.outputs.found == 'true' &&
+          steps.review.outputs.has_review == 'true' &&
+          steps.review.outputs.decision == 'APPROVE' &&
+          steps.review.outputs.health_score >= 4
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${{ steps.pr.outputs.head_branch }}"
+          if [ -n "$BRANCH" ] && [ "$BRANCH" != "main" ]; then
+            gh api \
+              -X DELETE \
+              "repos/${{ github.repository }}/git/refs/heads/${BRANCH}" \
+              2>/dev/null || echo "Branch already deleted or does not exist"
+          fi
+
+      - name: Send notification to Power Automate
+        if: >
+          always() &&
+          steps.pr.outputs.found == 'true' &&
+          steps.review.outputs.has_review == 'true'
+        run: |
+          REVIEW_BODY=$(cat /tmp/greptile_review.txt 2>/dev/null || echo "No review body")
+          INLINE=$(cat /tmp/inline_comments.txt 2>/dev/null || echo "No inline comments")
+
+          FULL_SUMMARY=$(printf "%s\n\n--- INLINE COMMENTS ---\n\n%s" "$REVIEW_BODY" "$INLINE")
+
+          curl -s -X POST "${{ secrets.POWER_AUTOMATE_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg decision "${{ steps.review.outputs.decision }}" \
+              --arg score "${{ steps.review.outputs.health_score }}" \
+              --arg review "$FULL_SUMMARY" \
+              --arg pr_url "${{ steps.pr.outputs.url }}" \
+              --arg pr_title "${{ steps.pr.outputs.title }}" \
+              --arg author "${{ steps.pr.outputs.author }}" \
+              --arg critical "${{ steps.review.outputs.critical_count }}" \
+              --arg high "${{ steps.review.outputs.high_count }}" \
+              --arg medium "${{ steps.review.outputs.medium_count }}" \
+              --arg total_comments "${{ steps.review.outputs.comment_count }}" \
+              '{
+                decision: $decision,
+                health_score: $score,
+                review_summary: $review,
+                pr_url: $pr_url,
+                pr_title: $pr_title,
+                author: $author,
+                critical_issues: $critical,
+                high_issues: $high,
+                medium_issues: $medium,
+                total_comments: $total_comments
+              }')"
