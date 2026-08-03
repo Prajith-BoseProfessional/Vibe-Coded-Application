@@ -13,7 +13,14 @@
     "**/dist/**",
     "**/build/**",
     "**/.git/**",
-    "**/*.map"
+    "**/*.map",
+    ".github/**",
+    "greptile.json",
+    "README.md",
+    "LICENSE",
+    "*.md",
+    "*.yml",
+    "*.yaml"
   ],
   "customContext": {
     "rules": [
@@ -96,7 +103,7 @@
     ],
     "other": [
       {
-        "content": "This repository receives code uploaded by business users via an automated OneDrive-to-GitHub pipeline. Many of the applications are AI-generated or vibe-coded. Review with extra scrutiny for common AI code generation patterns: monolithic files, copy-paste logic, missing error handling, placeholder messages, and forgotten debug artifacts. The review decision should be clear — is this code safe to deploy to production or not."
+        "content": "This repository receives code uploaded by business users via an automated OneDrive-to-GitHub pipeline. Each app is uploaded to its own directory and gets its own branch (review/app-name) and PR. Many of the applications are AI-generated or vibe-coded. Review with extra scrutiny for common AI code generation patterns: monolithic files, copy-paste logic, missing error handling, placeholder messages, and forgotten debug artifacts. The review decision should be clear — is this code safe to deploy to production or not. Only review files in the app directory — do NOT review pipeline infrastructure files."
       },
       {
         "content": "CRITICAL severity issues that must block merging: hardcoded secrets, code injection vectors (eval/innerHTML), data exfiltration to undocumented external systems, PII stored in localStorage/sessionStorage across sessions, and missing authentication on data-modifying endpoints."
